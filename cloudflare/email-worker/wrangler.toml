@@ -1,0 +1,18 @@
+name = "mail-email-worker"
+main = "src/index.ts"
+compatibility_date = "2026-09-20"
+
+workers_dev = false
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mail-store"
+database_id = "6c08dd27-59da-41e8-81e4-05c51aa51d4f"
+
+# The Gmail address to forward inbound mail to.
+# Set as a secret (never commit the real address):
+#
+#   npx wrangler secret put FORWARD_ADDRESS
+#
+# Value: your internal Gmail address (e.g. inbox@gmail.com)
