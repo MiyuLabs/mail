@@ -75,10 +75,48 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Debug Windows Package Output
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "=== Workspace ==="
+          Get-Location
+
+          Write-Host ""
+          Write-Host "=== Root directory ==="
+          Get-ChildItem -Force
+
+          Write-Host ""
+          Write-Host "=== cmd/mail ==="
+          Get-ChildItem -Force cmd/mail
+
+          Write-Host ""
+          Write-Host "=== dist ==="
+          if (Test-Path dist) {
+            Get-ChildItem -Force dist
+          } else {
+            Write-Host "dist does not exist"
+          }
+
+          Write-Host ""
+          Write-Host "=== All .exe files ==="
+          Get-ChildItem -Path . -Recurse -Filter "*.exe" -File |
+            Select-Object FullName, Length
+
       - name: Upload Windows Release Asset
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          gh release upload "${{ github.ref_name }}" dist/MiyuMail.exe
+          $exe = Get-ChildItem -Path . -Recurse -Filter "MiyuMail.exe" -File |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Error "MiyuMail.exe not found"
+            exit 1
+          }
+
+          Write-Host "Found: $($exe.FullName)"
+          gh release upload "${{ github.ref_name }}" "$($exe.FullName)"
         env:
           GH_TOKEN: ${{ github.token }}
 
