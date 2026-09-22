@@ -1,0 +1,20 @@
+name = "mail-sync-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-20"
+
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mail-store"
+database_id = "6c08dd27-59da-41e8-81e4-05c51aa51d4f"
+
+# Authentication token for desktop clients.
+# Generate one with: openssl rand -hex 32
+# Then set it as a secret:
+#
+#   npx wrangler secret put MAIL_SYNC_TOKEN
+#
+# Use this same value in your mail client config (sync.api_token)
+# or as the MAIL_SYNC_TOKEN environment variable.
