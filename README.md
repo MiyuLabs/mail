@@ -1,6 +1,6 @@
 # MiyuMail
 
-A lightweight, self-hostable, stateful desktop email client for small teams. Built to provide multiple virtual mailboxes (`careers@`, `legal@`, `hi@`) on your own domain using free (or nearly-free) infrastructure. It uses Cloudflare Email Routing to receive mail, a hidden Gmail IMAP backend for durable storage, Resend for outbound delivery, and Cloudflare D1 to synchronize read/unread states, threads, and drafts across your entire team.
+A lightweight, self-hostable, stateful desktop email client for small teams. Built to provide multiple virtual mailboxes (`careers@`, `legal@`, `hi@`) on your own domain using free (pay-as-you-scale) infrastructure. It uses Cloudflare Email Routing to receive mail, a hidden Gmail IMAP backend for durable storage, Resend for outbound delivery, and Cloudflare D1 to synchronize read/unread states, threads, and drafts across your entire team.
 
 ---
 
