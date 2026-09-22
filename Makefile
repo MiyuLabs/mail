@@ -22,7 +22,7 @@ install: build
 package:
 	@echo "Packaging app with Fyne..."
 	@mkdir -p dist
-	fyne package -os $(shell go env GOOS) -icon assets/icon.png -name "MiyuMail" -appID "in.miyulabs.mail" -sourceDir ./cmd/mail
+	fyne package -os $(shell go env GOOS) -icon ../../assets/icon.png -name "MiyuMail" -appID "in.miyulabs.mail" -sourceDir ./cmd/mail
 	@mv MiyuMail.tar.xz dist/ 2>/dev/null || true
 	@mv MiyuMail.app dist/ 2>/dev/null || true
 	@mv MiyuMail.exe dist/ 2>/dev/null || true
