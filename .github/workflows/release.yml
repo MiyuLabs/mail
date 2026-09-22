@@ -53,7 +53,7 @@ jobs:
       - name: Install Fyne CLI
         shell: bash
         run: |
-          go install fyne.io/tools/cmd/fyne@latest
+          go install fyne.io/fyne/v2/cmd/fyne@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Package App

@@ -133,7 +133,7 @@ MiyuMail uses Fyne to package the application into a native, standalone bundle (
 
 ```bash
 # Install Fyne CLI
-go install fyne.io/tools/cmd/fyne@latest
+go install fyne.io/fyne/v2/cmd/fyne@latest
 
 # Package the application bundle
 make package
