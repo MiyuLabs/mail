@@ -120,20 +120,27 @@ cp configs/mail.example.toml ~/.config/mail/config.toml # $HOME/.config/mail/con
 
 Update `~/.config/mail/config.toml` with your domain, Gmail OAuth credentials, Resend domain, and Sync API Worker URL.
 
-### 4. Build and Package (Distributing to your team)
+### 4. Installation & Distribution (For your team)
 
+**Option A: Pre-built Binaries (Recommended)**
+You can download the latest pre-packaged application for your OS directly from the [GitHub Releases](../../releases) page.
+- **Windows**: Download `MiyuMail-Windows.zip` (contains `MiyuMail.exe`), extract, and run.
+- **macOS**: Download `MiyuMail-macOS.zip`, double-click to extract, and drag `MiyuMail.app` to your `Applications` folder.
+- **Linux**: Download `MiyuMail-Linux.zip`, extract it, and run `sudo make install` for a system-wide installation or `make user-install` for a user-local installation.
+
+**Option B: Build Manually**
 MiyuMail uses Fyne to package the application into a native, standalone bundle (`.app`, `.exe`, or Linux executable). 
 
 ```bash
 # Install Fyne CLI
-go install fyne.io/fyne/v2/cmd/fyne@latest
+go install fyne.io/tools/cmd/fyne@latest
 
 # Package the application bundle
 make package
 ```
 
 **To distribute to your team:**
-1. Send them the packaged executable (e.g., `MiyuMail.app` or `MiyuMail.exe`).
+1. Send them the packaged executable (e.g., `MiyuMail.app` or `MiyuMail.exe`), or have them download it from Releases.
 2. Send them your configured `config.toml` file.
 3. Have them place the file at `~/.config/mail/config.toml` (or their OS equivalent config path: `$HOME/.config/mail/config.toml`) before launching the app.
 
@@ -160,7 +167,7 @@ These secrets will be then stored securely in the OS Keychain.
 
 | Command | Description |
 |---|---|
-| `make build` | Compiles a raw Go binary (`mail`) |
+| `make build` | Compiles a raw Go binary into `bin/` (`mail`) |
 | `make package` | Bundles a full GUI app (`MiyuMail.app`/`MiyuMail.exe`) using Fyne with the app icon |
 | `make setup` | Runs the interactive wizard to input credentials and authenticate Gmail |
 | `make run` | Instantly runs the application via `go run` |

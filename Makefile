@@ -8,24 +8,29 @@ INSTALL_DIR ?= $(HOME)/bin
 
 .PHONY: build
 build:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/mail
+	@mkdir -p bin
+	go build $(LDFLAGS) -o bin/$(BINARY) ./cmd/mail
 
 .PHONY: install
 install: build
 	@mkdir -p $(INSTALL_DIR)
-	cp $(BINARY) $(INSTALL_DIR)/$(BINARY)
+	cp bin/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 	@echo "✅ Installed to $(INSTALL_DIR)/$(BINARY)"
 	@echo "   Make sure $(INSTALL_DIR) is in your PATH."
 
 .PHONY: package
-package:
+package: build
 	@echo "Packaging app with Fyne..."
-	fyne package -os $(shell go env GOOS) -icon assets/icon.png -name "MiyuMail" -appID "in.miyulabs.mail" -sourceDir ./cmd/mail
+	@mkdir -p dist
+	$(shell go env GOPATH)/bin/fyne package -os $(shell go env GOOS) -icon $(PWD)/assets/icon.png -name "MiyuMail" -appID "in.miyulabs.mail" -executable $(PWD)/bin/$(BINARY)
+	@mv MiyuMail.tar.xz dist/ 2>/dev/null || true
+	@mv MiyuMail.app dist/ 2>/dev/null || true
+	@mv MiyuMail.exe dist/ 2>/dev/null || true
 
 .PHONY: setup
 setup: build
 	@echo "Running first-time setup wizard..."
-	./$(BINARY) setup
+	./bin/$(BINARY) setup
 
 .PHONY: run
 run:
@@ -78,7 +83,7 @@ auth-clear:
 
 .PHONY: clean
 clean:
-	rm -f $(BINARY) dist/$(BINARY)-*
+	rm -rf bin/ dist/
 
 .PHONY: lint
 lint:
