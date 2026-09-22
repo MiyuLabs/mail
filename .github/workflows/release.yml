@@ -71,16 +71,14 @@ jobs:
       - name: Upload Linux Release Asset
         if: runner.os == 'Linux'
         run: |
-          gh release upload "${{ github.ref_name }}" \
-            dist/MiyuMail.tar.xz
+          gh release upload "${{ github.ref_name }}" dist/MiyuMail.tar.xz
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Upload Windows Release Asset
         if: runner.os == 'Windows'
         run: |
-          gh release upload "${{ github.ref_name }}" \
-            dist/MiyuMail.exe
+          gh release upload "${{ github.ref_name }}" dist/MiyuMail.exe
         env:
           GH_TOKEN: ${{ github.token }}
 
