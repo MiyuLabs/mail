@@ -101,6 +101,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Delete Failed Release
         run: |
           gh release delete "${{ github.ref_name }}" --yes
