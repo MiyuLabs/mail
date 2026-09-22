@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Draft Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Draft Release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --draft \
+            --verify-tag \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  package:
+    name: Package
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev
+
+      - name: Install Fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Package App
+        run: make package
+
+      - name: Zip & Upload macOS Release Asset
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          zip -ry MiyuMail_macOS.zip MiyuMail.app
+          gh release upload "${{ github.ref_name }}" MiyuMail_macOS.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Upload Linux Release Asset
+        if: runner.os == 'Linux'
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/MiyuMail.tar.xz
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Upload Windows Release Asset
+        if: runner.os == 'Windows'
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/MiyuMail.exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    name: Publish Release
+    needs: [create-release, package]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish Release
+        run: |
+          gh release edit "${{ github.ref_name }}" \
+            --draft=false
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  cleanup:
+    name: Cleanup Failed Release
+    needs: [create-release, package, publish]
+    if: ${{ always() && needs.create-release.result == 'success' && (needs.package.result != 'success' || needs.publish.result != 'success') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete Failed Release
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes
+        env:
+          GH_TOKEN: ${{ github.token }}
