@@ -51,7 +51,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
 
       - name: Install Fyne CLI
-        run: go install fyne.io/tools/cmd/fyne@latest
+        shell: bash
+        run: |
+          go install fyne.io/tools/cmd/fyne@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Package App
         run: make package
@@ -87,6 +90,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Publish Release
         run: |
           gh release edit "${{ github.ref_name }}" \
