@@ -69,7 +69,6 @@ func NewApp(
 	sender *resend.Sender,
 ) *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	fyneApp.Settings().SetTheme(&MailTheme{})
 
 	a := &App{
 		fyneApp:    fyneApp,

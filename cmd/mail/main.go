@@ -42,6 +42,7 @@ func main() {
 	}
 
 	application := app.NewWithID("in.miyulabs.mail")
+	application.Settings().SetTheme(&ui.MailTheme{})
 	bootMainApp(application)
 	application.Run()
 }
