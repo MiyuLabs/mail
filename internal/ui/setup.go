@@ -74,12 +74,15 @@ func ShowSetupWizard(app fyne.App, onComplete func()) {
 		
 		go func() {
 			_, err := auth.GmailTokenSource(context.Background(), cfg.Gmail.OAuthClientID, cfg.Gmail.OAuthClientSecret)
-			d.Hide()
-			if err != nil {
-				dialog.ShowError(fmt.Errorf("Gmail Auth Failed: %v", err), w)
-			} else {
-				dialog.ShowInformation("Success", "Gmail successfully authorized!", w)
-			}
+			
+			fyne.Do(func() {
+				d.Hide()
+				if err != nil {
+					dialog.ShowError(fmt.Errorf("Gmail Auth Failed: %v", err), w)
+				} else {
+					dialog.ShowInformation("Success", "Gmail successfully authorized!", w)
+				}
+			})
 		}()
 	})
 	authBtn.Importance = widget.HighImportance
