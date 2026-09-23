@@ -307,6 +307,13 @@ func (c *Client) GetThread(ctx context.Context, threadID string) (*mailpkg.Threa
 	return &t, nil
 }
 
+// GetThreadIDByMessageID returns the thread_id for a given message_id.
+func (c *Client) GetThreadIDByMessageID(ctx context.Context, messageID string) (string, error) {
+	var threadID string
+	err := c.db.QueryRowContext(ctx, "SELECT thread_id FROM messages WHERE message_id = ?", messageID).Scan(&threadID)
+	return threadID, err
+}
+
 // MarkThreadArchived sets a thread's is_archived flag to 1.
 func (c *Client) MarkThreadArchived(ctx context.Context, threadID string) error {
 	_, err := c.db.ExecContext(ctx, "UPDATE threads SET is_archived = 1, updated_at = ? WHERE id = ?", time.Now().Format("2006-01-02T15:04:05Z07:00"), threadID)

@@ -66,6 +66,11 @@ func (s *Store) SearchThreads(ctx context.Context, req mailpkg.PageRequest, quer
 	return s.local.SearchThreads(ctx, req, query)
 }
 
+// GetThreadIDByMessageID looks up a thread ID from a message ID.
+func (s *Store) GetThreadIDByMessageID(ctx context.Context, messageID string) (string, error) {
+	return s.local.GetThreadIDByMessageID(ctx, messageID)
+}
+
 // GetThread reads a complete thread and its messages from the local cache.
 func (s *Store) GetThread(ctx context.Context, threadID string) (*mailpkg.Thread, error) {
 	t, err := s.local.GetThread(ctx, threadID)

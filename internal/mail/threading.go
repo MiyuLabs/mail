@@ -17,14 +17,20 @@ type ThreadEngine struct {
 	messageByID map[string]string
 	// threadByID maps Thread ID → Thread.
 	threadByID map[string]*Thread
+
+	// Callbacks for database lookup on cache miss
+	LookupThreadIDFunc func(messageID string) (string, bool)
+	GetThreadFunc      func(threadID string) (*Thread, bool)
 }
 
 // NewThreadEngine creates an empty threading engine.
 // Call Hydrate() to load existing state from the store.
-func NewThreadEngine() *ThreadEngine {
+func NewThreadEngine(lookupFunc func(string) (string, bool), getThreadFunc func(string) (*Thread, bool)) *ThreadEngine {
 	return &ThreadEngine{
-		messageByID: make(map[string]string),
-		threadByID:  make(map[string]*Thread),
+		messageByID:        make(map[string]string),
+		threadByID:         make(map[string]*Thread),
+		LookupThreadIDFunc: lookupFunc,
+		GetThreadFunc:      getThreadFunc,
 	}
 }
 
@@ -53,15 +59,16 @@ func (te *ThreadEngine) Hydrate(messages []Message, threads []Thread) {
 func (te *ThreadEngine) AssignThread(m *Message, identityID string) (*Thread, error) {
 	// 0. Check if this exact message is already in a thread (IMAP duplicate).
 	if m.MessageID != "" {
-		if threadID, ok := te.messageByID[m.MessageID]; ok {
-			// It's a duplicate. Just return the existing thread.
-			return te.threadByID[threadID], nil
+		if threadID, ok := te.LookupThreadID(m.MessageID); ok {
+			if t, ok := te.getThread(threadID); ok {
+				return t, nil
+			}
 		}
 	}
 
 	// 1. Try In-Reply-To.
 	if m.InReplyTo != "" {
-		if threadID, ok := te.messageByID[m.InReplyTo]; ok {
+		if threadID, ok := te.LookupThreadID(m.InReplyTo); ok {
 			return te.appendToThread(threadID, m)
 		}
 	}
@@ -69,7 +76,7 @@ func (te *ThreadEngine) AssignThread(m *Message, identityID string) (*Thread, er
 	// 2. Walk References in reverse order (most recent first).
 	for i := len(m.References) - 1; i >= 0; i-- {
 		ref := m.References[i]
-		if threadID, ok := te.messageByID[ref]; ok {
+		if threadID, ok := te.LookupThreadID(ref); ok {
 			return te.appendToThread(threadID, m)
 		}
 	}
@@ -92,11 +99,25 @@ func (te *ThreadEngine) AssignThread(m *Message, identityID string) (*Thread, er
 	return thread, nil
 }
 
+// getThread returns the Thread object, fetching from DB if not in memory.
+func (te *ThreadEngine) getThread(threadID string) (*Thread, bool) {
+	if t, ok := te.threadByID[threadID]; ok {
+		return t, true
+	}
+	if te.GetThreadFunc != nil {
+		if t, ok := te.GetThreadFunc(threadID); ok {
+			te.threadByID[threadID] = t
+			return t, true
+		}
+	}
+	return nil, false
+}
+
 // appendToThread updates an existing thread with a new message.
 func (te *ThreadEngine) appendToThread(threadID string, m *Message) (*Thread, error) {
-	thread, ok := te.threadByID[threadID]
+	thread, ok := te.getThread(threadID)
 	if !ok {
-		return nil, fmt.Errorf("threading: thread %s not found in index", threadID)
+		return nil, fmt.Errorf("threading: thread %s not found in index or db", threadID)
 	}
 	thread.MessageCount++
 	if m.ReceivedAt.After(thread.LastMessageAt) {
@@ -124,8 +145,17 @@ func (te *ThreadEngine) index(messageID, threadID string) {
 
 // LookupThreadID returns the thread ID for a given Message-ID, if known.
 func (te *ThreadEngine) LookupThreadID(messageID string) (string, bool) {
-	id, ok := te.messageByID[messageID]
-	return id, ok
+	if id, ok := te.messageByID[messageID]; ok {
+		return id, true
+	}
+	if te.LookupThreadIDFunc != nil {
+		id, ok := te.LookupThreadIDFunc(messageID)
+		if ok {
+			te.messageByID[messageID] = id
+			return id, true
+		}
+	}
+	return "", false
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

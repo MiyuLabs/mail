@@ -100,7 +100,18 @@ func bootMainApp(application fyne.App) {
 		return
 	}
 
-	threadEngine := mailpkg.NewThreadEngine()
+	var appStore *store.Store
+
+	threadEngine := mailpkg.NewThreadEngine(
+		func(messageID string) (string, bool) {
+			id, err := appStore.GetThreadIDByMessageID(ctx, messageID)
+			return id, err == nil && id != ""
+		},
+		func(threadID string) (*mailpkg.Thread, bool) {
+			t, err := appStore.GetThread(ctx, threadID)
+			return t, err == nil && t != nil
+		},
+	)
 	resolver := mailpkg.NewIdentityResolver(identities, cfg.Identities.Default)
 
 	cacheDir, err := config.CacheDir()
@@ -125,7 +136,7 @@ func bootMainApp(application fyne.App) {
 		}
 	}
 
-	appStore := store.NewStore(localDB, d1Client, imapClient, cacheDir)
+	appStore = store.NewStore(localDB, d1Client, imapClient, cacheDir)
 	syncEngine := imap.NewSyncEngine(imapClient, appStore, threadEngine, resolver, cacheDir, clientID, cfg.Sync.FilterUnrouted, cfg.Resend.Domain)
 
 	// Build and run UI
