@@ -126,8 +126,11 @@ func (a *App) Run() {
 	// ── Background goroutines ─────────────────────────────────────────────────
 	go a.loadInitialData()
 
-	a.window.ShowAndRun()
-	a.cancel() // cleanup on exit
+	a.window.SetOnClosed(func() {
+		a.cancel()
+	})
+	
+	a.window.Show()
 }
 
 // loadInitialData fetches identities and the first page of threads from D1.

@@ -72,8 +72,12 @@ func bootMainApp(application fyne.App) {
 			return
 		}
 	}
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	application.Lifecycle().SetOnStopped(func() {
+		cancel()
+	})
 
-	ctx := context.Background()
 	tokenSource, err := auth.GmailTokenSource(ctx, cfg.Gmail.OAuthClientID, cfg.Gmail.OAuthClientSecret)
 	if err != nil {
 		launchSetup(application)
