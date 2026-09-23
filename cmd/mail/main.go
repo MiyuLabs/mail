@@ -107,6 +107,10 @@ func bootMainApp(application fyne.App) {
 			id, err := appStore.GetThreadIDByMessageID(ctx, messageID)
 			return id, err == nil && id != ""
 		},
+		func(subject string) (string, bool) {
+			id, err := appStore.GetThreadIDBySubject(ctx, subject)
+			return id, err == nil && id != ""
+		},
 		func(threadID string) (*mailpkg.Thread, bool) {
 			t, err := appStore.GetThread(ctx, threadID)
 			return t, err == nil && t != nil

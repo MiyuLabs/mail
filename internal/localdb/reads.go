@@ -314,6 +314,13 @@ func (c *Client) GetThreadIDByMessageID(ctx context.Context, messageID string) (
 	return threadID, err
 }
 
+// GetThreadIDBySubject looks for the most recent thread with the exact same subject.
+func (c *Client) GetThreadIDBySubject(ctx context.Context, subject string) (string, error) {
+	var threadID string
+	err := c.db.QueryRowContext(ctx, "SELECT id FROM threads WHERE subject = ? COLLATE NOCASE ORDER BY last_message_at DESC LIMIT 1", subject).Scan(&threadID)
+	return threadID, err
+}
+
 // MarkThreadArchived sets a thread's is_archived flag to 1.
 func (c *Client) MarkThreadArchived(ctx context.Context, threadID string) error {
 	_, err := c.db.ExecContext(ctx, "UPDATE threads SET is_archived = 1, updated_at = ? WHERE id = ?", time.Now().Format("2006-01-02T15:04:05Z07:00"), threadID)

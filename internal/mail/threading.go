@@ -19,18 +19,24 @@ type ThreadEngine struct {
 	threadByID map[string]*Thread
 
 	// Callbacks for database lookup on cache miss
-	LookupThreadIDFunc func(messageID string) (string, bool)
-	GetThreadFunc      func(threadID string) (*Thread, bool)
+	LookupThreadIDFunc          func(messageID string) (string, bool)
+	LookupThreadIDBySubjectFunc func(subject string) (string, bool)
+	GetThreadFunc               func(threadID string) (*Thread, bool)
 }
 
 // NewThreadEngine creates an empty threading engine.
 // Call Hydrate() to load existing state from the store.
-func NewThreadEngine(lookupFunc func(string) (string, bool), getThreadFunc func(string) (*Thread, bool)) *ThreadEngine {
+func NewThreadEngine(
+	lookupFunc func(string) (string, bool),
+	lookupBySubjectFunc func(string) (string, bool),
+	getThreadFunc func(string) (*Thread, bool),
+) *ThreadEngine {
 	return &ThreadEngine{
-		messageByID:        make(map[string]string),
-		threadByID:         make(map[string]*Thread),
-		LookupThreadIDFunc: lookupFunc,
-		GetThreadFunc:      getThreadFunc,
+		messageByID:                 make(map[string]string),
+		threadByID:                  make(map[string]*Thread),
+		LookupThreadIDFunc:          lookupFunc,
+		LookupThreadIDBySubjectFunc: lookupBySubjectFunc,
+		GetThreadFunc:               getThreadFunc,
 	}
 }
 
@@ -77,6 +83,21 @@ func (te *ThreadEngine) AssignThread(m *Message, identityID string) (*Thread, er
 	for i := len(m.References) - 1; i >= 0; i-- {
 		ref := m.References[i]
 		if threadID, ok := te.LookupThreadID(ref); ok {
+			return te.appendToThread(threadID, m)
+		}
+	}
+
+	// 2.5. Fallback: Subject matching.
+	// Since Resend (Amazon SES) completely overwrites our outbound Message-ID
+	// envelope headers, replies from Gmail will point to the SES Message-ID
+	// (which we don't know). This means In-Reply-To and References will never match
+	// our stored Message-ID for outbound emails.
+	// To fix this, if strict threading fails, we fallback to matching the exact
+	// normalized subject within recent history.
+	normalizedSubject := NormalizeSubject(m.Subject)
+	if te.LookupThreadIDBySubjectFunc != nil {
+		if threadID, ok := te.LookupThreadIDBySubjectFunc(normalizedSubject); ok {
+			// Found a matching subject! Group it.
 			return te.appendToThread(threadID, m)
 		}
 	}
