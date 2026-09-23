@@ -1,6 +1,12 @@
-# MiyuMail
+<div align="center">
+    <img src="./assets/icon.png" alt="MiyuMail Logo" width="128" />
 
-A lightweight, self-hostable, stateful desktop email client for small teams. Built to provide multiple virtual mailboxes (`careers@`, `legal@`, `hi@`) on your own domain using free (pay-as-you-scale) infrastructure. It uses Cloudflare Email Routing to receive mail, a hidden Gmail IMAP backend for durable storage, Resend for outbound delivery, and Cloudflare D1 to synchronize read/unread states, threads, and drafts across your entire team.
+# MiyuLabs — Email Infrastructure
+
+Lightweight, self-hosted email infrastructure and a native desktop client for small teams managing multiple custom-domain mailboxes (`careers@`, `legal@`, `hi@`) from a single application. Built around free (pay-as-you-scale) infrastructure, with Cloudflare Email Routing for inbound mail, a hidden Gmail IMAP backend for durable storage, Cloudflare D1 for shared state and synchronization, and Resend for outbound delivery. Supports virtual identities, RFC 5322 threading, shared read/archive/star state, synchronized drafts, attachments, and cross-platform native packaging.
+</div>
+
+<img width="1702" height="924" alt="MiyuMail Action" src="https://github.com/user-attachments/assets/68737e7b-4695-485c-884a-180b21e8f93b" />
 
 ---
 
@@ -31,47 +37,7 @@ A lightweight, self-hostable, stateful desktop email client for small teams. Bui
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph External
-        Sender([External Sender])
-        Recipient([External Recipient])
-    end
-
-    subgraph Inbound Flow
-        CER[Cloudflare Email Routing\nRoute: *@domain.tld]
-        Worker[Cloudflare Email Worker\nInjects X-Original-To & D1 indexing]
-        Gmail[(Gmail Inbox\nbackend@gmail.com)]
-    end
-
-    subgraph Shared State
-        D1[(Cloudflare D1\nThreads, Read State, Drafts)]
-        SyncAPI[Cloudflare Sync API\nREST Proxy Worker]
-    end
-
-    subgraph Client Application
-        MiyuMail[MiyuMail Desktop Client\nGo + Fyne]
-        LocalDB[(Local SQLite Cache)]
-    end
-
-    subgraph Outbound Flow
-        Resend[Resend API\nSends as @domain.tld]
-    end
-
-    Sender -->|Emails careers@domain.tld| CER
-    CER --> Worker
-    Worker -->|IMAP Delivery| Gmail
-    Worker -->|Metadata & Indexing| D1
-
-    MiyuMail <-->|REST| SyncAPI
-    SyncAPI <--> D1
-    
-    MiyuMail <-->|IMAP IDLE & Fetch| Gmail
-    MiyuMail <-->|Local indexing| LocalDB
-    
-    MiyuMail -->|Sends Compose Request| Resend
-    Resend -->|Delivers| Recipient
-```
+<img width="1536" height="1024" alt="miyumail_architecture" src="https://github.com/user-attachments/assets/25bbd97e-3b44-4a96-bb3a-c0968965046c" />
 
 ### Core Abstractions
 
@@ -112,9 +78,13 @@ flowchart TD
 
 ### 3. Configure the Application
 
-You do **not** need to manually copy configuration files anymore! The application handles this automatically.
+Copy the configuration template and fill in your details:
 
-When you launch MiyuMail for the first time, it will auto-generate a default `config.toml` at `~/.config/mail/config.toml` (or your OS equivalent path) and display its location in the GUI Setup Wizard so you can update your domains, mailbox address and oauth credentials there.
+```bash
+cp configs/mail.example.toml ~/.config/mail/config.toml # $HOME/.config/mail/config.toml
+```
+
+Update `~/.config/mail/config.toml` with your domain, Gmail OAuth credentials, Resend domain, and Sync API Worker URL.
 
 ### 4. Installation & Distribution (For your team)
 
@@ -137,17 +107,23 @@ make package
 
 **To distribute to your team:**
 1. Send them the packaged executable (e.g., `MiyuMail.app` or `MiyuMail.exe`), or have them download it from Releases.
-2. They just double-click the app! The application will automatically detect they are a new user and launch the native GUI Setup Wizard. Ask them to populate the correct values in `~/.config/mail/config.toml` or send pre-populated `config.toml` file over a secure-channel and ask them to replace it.
+2. Send them your configured `config.toml` file.
+3. Have them place the file at `~/.config/mail/config.toml` (or their OS equivalent config path: `$HOME/.config/mail/config.toml`) before launching the app.
 
 ### 5. First-Time Authentication
 
-When a team member launches the app for the first time, the native GUI Setup Wizard will automatically appear and prompt them to:
-- Fill in their credentials in the auto-generated `config.toml` file.
-- Enter the Resend API key directly into the secure UI.
-- Enter the `MAIL_SYNC_TOKEN` directly into the secure UI.
-- Authenticate with the generic Gmail account via a browser popup by clicking the "Authorize Gmail" button.
+When a team member launches the app for the first time, or if you run the setup wizard from the source:
 
-These secrets will then be stored securely in the OS Keychain, and the app will boot up seamlessly.
+```bash
+make setup # Alternatively, can also run ./mail setup
+```
+
+The app will securely prompt them to:
+- Authenticate with the generic Gmail account via OAuth (browser popup).
+- Enter the Resend API key.
+- Enter the `MAIL_SYNC_TOKEN` (the secret protecting your Cloudflare D1 Sync API).
+
+These secrets will be then stored securely in the OS Keychain.
 
 ---
 
@@ -159,7 +135,9 @@ These secrets will then be stored securely in the OS Keychain, and the app will 
 |---|---|
 | `make build` | Compiles a raw Go binary into `bin/` (`mail`) |
 | `make package` | Bundles a full GUI app (`MiyuMail.app`/`MiyuMail.exe`) using Fyne with the app icon |
+| `make setup` | Runs the interactive wizard to input credentials and authenticate Gmail |
 | `make run` | Instantly runs the application via `go run` |
+| `make auth-gmail` | Triggers just the Gmail OAuth browser flow |
 
 ---
 
