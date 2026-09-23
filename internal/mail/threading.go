@@ -147,6 +147,15 @@ func BuildReplyHeaders(parent *Message) (inReplyTo, references string) {
 }
 
 func getSenderName(m *Message) string {
+	// For outbound emails starting a thread, show who it was sent to
+	if m.Direction == DirectionOutbound && len(m.ToAddresses) > 0 {
+		parts := strings.Split(m.ToAddresses[0], "@")
+		if len(parts) > 0 {
+			return "To: " + parts[0]
+		}
+		return "To: " + m.ToAddresses[0]
+	}
+
 	if m.FromName != "" {
 		return m.FromName
 	}

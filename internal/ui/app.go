@@ -272,6 +272,15 @@ func (a *App) processOutbox() {
 				_ = a.store.Local().UpdateOutbox(a.ctx, id, "sent", "", time.Now().Format(time.RFC3339), retryCount)
 				
 				if req.ThreadID == "" {
+					var participantName string
+					if len(req.To) > 0 {
+						parts := strings.Split(req.To[0], "@")
+						if len(parts) > 0 {
+							participantName = "To: " + parts[0]
+						} else {
+							participantName = "To: " + req.To[0]
+						}
+					}
 					newThread := &mailpkg.Thread{
 						ID:            uuid.New().String(),
 						Subject:       mailpkg.NormalizeSubject(req.Subject),
@@ -279,6 +288,7 @@ func (a *App) processOutbox() {
 						LastMessageAt: time.Now(),
 						MessageCount:  1,
 						Snippet:       mailpkg.MakeSnippet(req.BodyText, 120),
+						ParticipantNames: participantName,
 						CreatedAt:     time.Now(),
 						UpdatedAt:     time.Now(),
 					}
