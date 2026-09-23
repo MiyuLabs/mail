@@ -27,6 +27,9 @@ import (
 	"strings"
 	"syscall"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/dialog"
 	"golang.org/x/term"
 
 	"github.com/MiyuLabs/mail/internal/auth"
@@ -40,6 +43,26 @@ import (
 	"github.com/MiyuLabs/mail/internal/ui"
 	"github.com/google/uuid"
 )
+
+func fatalError(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Fprintln(os.Stderr, msg)
+
+	a := fyne.CurrentApp()
+	if a == nil {
+		a = app.NewWithID("in.miyulabs.mail")
+	}
+	w := a.NewWindow("MiyuMail - Startup Error")
+	
+	// Create a generic error dialog
+	dialog.ShowError(fmt.Errorf("%s", msg), w)
+	w.Resize(fyne.NewSize(500, 200))
+	w.SetOnClosed(func() {
+		os.Exit(1)
+	})
+	w.ShowAndRun()
+	os.Exit(1)
+}
 
 var version = "dev"
 
@@ -67,12 +90,11 @@ func main() {
 	// ── Load configuration ────────────────────────────────────────────────────
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr,
+		fatalError(
 			"Configuration error: %v\n\n"+
 				"First time? Run:  mail setup\n"+
-				"Or manually copy configs/mail.example.toml to ~/.config/mail/config.toml\n",
+				"Or manually copy configs/mail.example.toml to ~/.config/mail/config.toml",
 			err)
-		os.Exit(1)
 	}
 
 	// ── Credentials: env vars take priority over keychain ─────────────────────
@@ -81,11 +103,10 @@ func main() {
 	if resendKey == "" {
 		resendKey, err = auth.GetResendAPIKey()
 		if err != nil {
-			fmt.Fprintln(os.Stderr,
-				"Resend API key not found.\n"+
-					"  Option A: mail auth resend <key>\n"+
+			fatalError(
+				"Resend API key not found.\n" +
+					"  Option A: mail auth resend <key>\n" +
 					"  Option B: export RESEND_API_KEY=<key>")
-			os.Exit(1)
 		}
 	}
 
@@ -93,11 +114,10 @@ func main() {
 	if syncToken == "" {
 		syncToken, err = auth.GetSyncAPIToken()
 		if err != nil {
-			fmt.Fprintln(os.Stderr,
-				"Sync API token not found.\n"+
-					"  Option A: mail auth token <token>\n"+
+			fatalError(
+				"Sync API token not found.\n" +
+					"  Option A: mail auth token <token>\n" +
 					"  Option B: export MAIL_SYNC_TOKEN=<token>")
-			os.Exit(1)
 		}
 	}
 
@@ -105,9 +125,7 @@ func main() {
 	ctx := context.Background()
 	tokenSource, err := auth.GmailTokenSource(ctx, cfg.Gmail.OAuthClientID, cfg.Gmail.OAuthClientSecret)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Gmail authentication failed: %v\n"+
-			"Run 'mail auth gmail' to re-authorise.\n", err)
-		os.Exit(1)
+		fatalError("Gmail authentication failed: %v\nRun 'mail auth gmail' to re-authorise.", err)
 	}
 
 	// ── IMAP client (Main) ────────────────────────────────────────────────────
@@ -128,8 +146,7 @@ func main() {
 	// ── Fetch identities ──────────────────────────────────────────────────────
 	identities, err := d1Client.ListIdentities(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load identities from D1: %v\n", err)
-		os.Exit(1)
+		fatalError("Failed to load identities from D1: %v", err)
 	}
 
 	// ── Threading engine + identity resolver ──────────────────────────────────
@@ -139,8 +156,7 @@ func main() {
 	// ── Cache directory ───────────────────────────────────────────────────────
 	cacheDir, err := config.CacheDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot create cache directory: %v\n", err)
-		os.Exit(1)
+		fatalError("Cannot create cache directory: %v", err)
 	}
 
 	// ── Client ID (stable per installation) ───────────────────────────────────
@@ -150,8 +166,7 @@ func main() {
 	localDBPath := filepath.Join(cacheDir, "local.db")
 	localDB, err := localdb.OpenOrCreate(localDBPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Cannot open local DB: %v\n", err)
-		os.Exit(1)
+		fatalError("Cannot open local DB: %v", err)
 	}
 	defer localDB.Close()
 
