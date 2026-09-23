@@ -4,6 +4,7 @@ package imap
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -169,7 +170,7 @@ func parseMultipart(r io.Reader, boundary string) (bodyText, bodyHTML string, at
 
 		default:
 			// Treat as attachment.
-			raw, _ := io.ReadAll(part)
+			raw, _ := io.ReadAll(decodeTransferEncoding(part.Header, part))
 			filename := dispParams["filename"]
 			if filename == "" {
 				filename = params["name"]
@@ -257,6 +258,8 @@ func decodeTransferEncoding(header interface{ Get(string) string }, r io.Reader)
 	switch strings.ToLower(header.Get("Content-Transfer-Encoding")) {
 	case "quoted-printable":
 		return quotedprintable.NewReader(r)
+	case "base64":
+		return base64.NewDecoder(base64.StdEncoding, r)
 	default:
 		return r
 	}

@@ -292,6 +292,7 @@ func (c *Client) GetThread(ctx context.Context, threadID string) (*mailpkg.Threa
 		}
 		m.IsRead = isRead == 1
 		m.IsDraft = isDraft == 1
+		m.HasAttachments = hasAttachments == 1
 		m.ReceivedAt, _ = time.Parse(time.RFC3339, recAt)
 		m.CreatedAt, _ = time.Parse(time.RFC3339, created)
 

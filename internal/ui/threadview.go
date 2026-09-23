@@ -6,11 +6,14 @@ package ui
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -180,7 +183,29 @@ func (tv *ThreadView) buildMessageCard(msg *mailpkg.Message) fyne.CanvasObject {
 				fmt.Sprintf("📎 %s (%s)", attCopy.Filename, humanizeBytes(attCopy.SizeBytes)),
 				theme.DownloadIcon(),
 				func() {
-					// TODO: trigger IMAP attachment download
+					if attCopy.StorageKey == "" {
+						return
+					}
+					
+					d := dialog.NewFileSave(func(uc fyne.URIWriteCloser, err error) {
+						if err != nil || uc == nil {
+							return
+						}
+						defer uc.Close()
+						
+						src, err := os.Open(attCopy.StorageKey)
+						if err != nil {
+							dialog.ShowError(err, tv.app.window)
+							return
+						}
+						defer src.Close()
+						
+						if _, err := io.Copy(uc, src); err != nil {
+							dialog.ShowError(fmt.Errorf("failed to save attachment: %w", err), tv.app.window)
+						}
+					}, tv.app.window)
+					d.SetFileName(attCopy.Filename)
+					d.Show()
 				},
 			)
 			btn.Importance = widget.LowImportance

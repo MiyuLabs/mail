@@ -164,7 +164,7 @@ func main() {
 	}
 
 	// ── Store Coordinator ─────────────────────────────────────────────────────
-	appStore := store.NewStore(localDB, d1Client, imapClient)
+	appStore := store.NewStore(localDB, d1Client, imapClient, cacheDir)
 
 	// ── Sync engine ───────────────────────────────────────────────────────────
 	syncEngine := imap.NewSyncEngine(imapClient, appStore, threadEngine, resolver, cacheDir, clientID, cfg.Sync.FilterUnrouted, cfg.Resend.Domain)

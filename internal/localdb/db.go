@@ -206,10 +206,11 @@ func (c *Client) UpsertMessage(ctx context.Context, m *mailpkg.Message) error {
 			direction, imap_uid, resend_id, is_read, is_draft, has_attachments,
 			received_at, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
+		ON CONFLICT(message_id) DO UPDATE SET
 			is_read = excluded.is_read,
 			is_draft = excluded.is_draft,
-			has_attachments = excluded.has_attachments
+			has_attachments = MAX(messages.has_attachments, excluded.has_attachments),
+			imap_uid = COALESCE(excluded.imap_uid, messages.imap_uid)
 	`
 	boolToInt := func(b bool) int {
 		if b {
@@ -222,7 +223,7 @@ func (c *Client) UpsertMessage(ctx context.Context, m *mailpkg.Message) error {
 		m.FromAddress, m.FromName, toJSONString(m.ToAddresses), toJSONString(m.CcAddresses), toJSONString(m.BccAddresses),
 		m.ReplyTo, m.Subject, m.BodyText, m.BodyHTML, m.Snippet, m.OriginalTo,
 		m.Direction, m.IMAPuid, m.ResendID,
-		boolToInt(m.IsRead), boolToInt(m.IsDraft), boolToInt(len(m.Attachments) > 0),
+		boolToInt(m.IsRead), boolToInt(m.IsDraft), boolToInt(m.HasAttachments),
 		m.ReceivedAt.Format("2006-01-02T15:04:05Z07:00"),
 		m.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	)

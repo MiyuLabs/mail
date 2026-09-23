@@ -108,30 +108,42 @@ func (r *ComposeRequest) Validate() error {
 //
 //   - messageID is the RFC 5322 Message-ID we generated and injected into the
 //     email (e.g. "<uuid@domain.tld>"). This is the canonical threading ID.
-//   - resendID is Resend's internal tracking UUID. Stored for API/webhook use only.
 func (r *ComposeRequest) ToMessage(messageID, resendID string) *Message {
-	return &Message{
-		ID:           uuid.New().String(),
-		ThreadID:     r.ThreadID,
-		MessageID:    messageID, // RFC 5322 ID — used for In-Reply-To on future replies
-		InReplyTo:    r.InReplyTo,
-		References:   r.References,
-		FromAddress:  r.Identity.Address,
-		FromName:     r.Identity.DisplayName,
-		ToAddresses:  r.To,
-		CcAddresses:  r.Cc,
-		BccAddresses: r.Bcc,
-		Subject:      r.Subject,
-		BodyText:     r.BodyText,
-		BodyHTML:     r.BodyHTML,
-		Snippet:      makeSnippet(r.BodyText, 120),
-		OriginalTo:   r.Identity.Address,
-		Direction:    DirectionOutbound,
-		ResendID:     resendID, // Resend internal UUID — NOT used for threading
-		IsRead:       true,
-		ReceivedAt:   time.Now(),
-		CreatedAt:    time.Now(),
+	msg := &Message{
+		ID:             uuid.New().String(),
+		ThreadID:       r.ThreadID,
+		MessageID:      strings.Trim(messageID, "<>"), // RFC 5322 ID — clean, without brackets
+		InReplyTo:      r.InReplyTo,
+		References:     r.References,
+		FromAddress:    r.Identity.Address,
+		FromName:       r.Identity.DisplayName,
+		ToAddresses:    r.To,
+		CcAddresses:    r.Cc,
+		BccAddresses:   r.Bcc,
+		Subject:        r.Subject,
+		BodyText:       r.BodyText,
+		BodyHTML:       r.BodyHTML,
+		Snippet:        makeSnippet(r.BodyText, 120),
+		OriginalTo:     r.Identity.Address,
+		Direction:      DirectionOutbound,
+		ResendID:       resendID, // Resend internal UUID — NOT used for threading
+		IsRead:         true,
+		HasAttachments: len(r.Attachments) > 0,
+		ReceivedAt:     time.Now(),
+		CreatedAt:      time.Now(),
 	}
+
+	for _, a := range r.Attachments {
+		msg.Attachments = append(msg.Attachments, Attachment{
+			ID:          uuid.New().String(),
+			MessageID:   msg.ID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			SizeBytes:   int64(len(a.Data)),
+			RawData:     a.Data,
+		})
+	}
+	return msg
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

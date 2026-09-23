@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/MiyuLabs/mail/internal/d1"
 	"github.com/MiyuLabs/mail/internal/localdb"
@@ -20,14 +22,16 @@ type Store struct {
 	local       *localdb.Client
 	remote      *d1.Client
 	imapMutator IMAPMutator
+	cacheDir    string
 }
 
 // NewStore creates a new coordinator.
-func NewStore(local *localdb.Client, remote *d1.Client, imapMutator IMAPMutator) *Store {
+func NewStore(local *localdb.Client, remote *d1.Client, imapMutator IMAPMutator, cacheDir string) *Store {
 	return &Store{
 		local:       local,
 		remote:      remote,
 		imapMutator: imapMutator,
+		cacheDir:    cacheDir,
 	}
 }
 
@@ -64,7 +68,32 @@ func (s *Store) SearchThreads(ctx context.Context, req mailpkg.PageRequest, quer
 
 // GetThread reads a complete thread and its messages from the local cache.
 func (s *Store) GetThread(ctx context.Context, threadID string) (*mailpkg.Thread, error) {
-	return s.local.GetThread(ctx, threadID)
+	t, err := s.local.GetThread(ctx, threadID)
+	if err != nil || t == nil {
+		return t, err
+	}
+	
+	// Populate attachment metadata from disk
+	for i := range t.Messages {
+		if t.Messages[i].HasAttachments {
+			dir := filepath.Join(s.cacheDir, "attachments", t.Messages[i].MessageID)
+			entries, _ := os.ReadDir(dir)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					info, err := entry.Info()
+					if err == nil {
+						t.Messages[i].Attachments = append(t.Messages[i].Attachments, mailpkg.Attachment{
+							Filename:   entry.Name(),
+							SizeBytes:  info.Size(),
+							StorageKey: filepath.Join(dir, entry.Name()),
+						})
+					}
+				}
+			}
+		}
+	}
+	
+	return t, nil
 }
 
 // QueueOutbox queues an email to be sent in the background.
@@ -180,8 +209,33 @@ func (s *Store) SaveDraft(ctx context.Context, draft *mailpkg.Draft) error {
 
 // RecordSent saves a sent message locally and remotely.
 func (s *Store) RecordSent(ctx context.Context, msg *mailpkg.Message) error {
+	if len(msg.Attachments) > 0 {
+		_ = s.CacheAttachments(msg)
+	}
 	if err := s.local.UpsertMessage(ctx, msg); err != nil {
 		return err
 	}
 	return s.remote.RecordSent(ctx, msg)
+}
+
+// CacheAttachments writes attachment binary data to local disk.
+func (s *Store) CacheAttachments(m *mailpkg.Message) error {
+	for i := range m.Attachments {
+		att := &m.Attachments[i]
+		if len(att.RawData) == 0 {
+			continue
+		}
+		dir := filepath.Join(s.cacheDir, "attachments", m.MessageID)
+		
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		
+		path := filepath.Join(dir, att.Filename)
+		if err := os.WriteFile(path, att.RawData, 0644); err != nil {
+			return err
+		}
+		att.RawData = nil // clear memory
+	}
+	return nil
 }

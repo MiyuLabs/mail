@@ -69,7 +69,7 @@ func NewApp(
 	sender *resend.Sender,
 ) *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	fyneApp := app.New()
+	fyneApp := app.NewWithID("in.miyulabs.mail")
 	fyneApp.Settings().SetTheme(&MailTheme{})
 
 	a := &App{
@@ -197,12 +197,22 @@ func (a *App) processOutbox() {
 				continue
 			}
 
+			type pendingItem struct {
+				id, messageID, identityID, payload string
+				retryCount int
+			}
+			var pending []pendingItem
+
 			for rows.Next() {
-				var id, messageID, identityID, payload string
-				var retryCount int
-				if err := rows.Scan(&id, &messageID, &identityID, &payload, &retryCount); err != nil {
-					continue
+				var item pendingItem
+				if err := rows.Scan(&item.id, &item.messageID, &item.identityID, &item.payload, &item.retryCount); err == nil {
+					pending = append(pending, item)
 				}
+			}
+			rows.Close()
+
+			for _, item := range pending {
+				id, messageID, payload, retryCount := item.id, item.messageID, item.payload, item.retryCount
 
 				var req mailpkg.ComposeRequest
 				if err := json.Unmarshal([]byte(payload), &req); err != nil {
@@ -261,9 +271,13 @@ func (a *App) processOutbox() {
 				sentMsg := req.ToMessage(messageID, resendID)
 				if err := a.store.RecordSent(a.ctx, sentMsg); err != nil {
 					log.Printf("outbox: D1 record sent failed: %v", err)
+				} else {
+					a.RefreshMailList()
+					if a.state.SelectedThreadID == sentMsg.ThreadID {
+						a.SelectThread(sentMsg.ThreadID)
+					}
 				}
 			}
-			rows.Close()
 		}
 	}
 }
