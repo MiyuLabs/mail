@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -146,7 +147,6 @@ func gmailOAuthConfig(clientID, clientSecret string) *oauth2.Config {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Endpoint:     google.Endpoint,
-		RedirectURL:  "urn:ietf:wg:oauth:2.0:oob", // out-of-band for desktop apps
 		Scopes:       []string{gmailScope},
 	}
 }
@@ -159,8 +159,14 @@ func runConsentFlow(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, err
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 
-	srv := &http.Server{Addr: "localhost:9876"}
-	http.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("auth: could not start callback server: %w", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
 			errCh <- fmt.Errorf("no code in callback URL")
@@ -171,19 +177,22 @@ func runConsentFlow(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, err
 		codeCh <- code
 	})
 
-	cfg.RedirectURL = "http://localhost:9876/oauth/callback"
+	srv := &http.Server{Handler: mux}
 
+	cfg.RedirectURL = fmt.Sprintf("http://127.0.0.1:%d/oauth/callback", port)
 	authURL := cfg.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
-	// Try to open the browser automatically.
-	openBrowser(authURL)
-	fmt.Printf("\nOpening browser for Gmail authorization...\nIf it did not open, visit:\n\n  %s\n\nWaiting for authorization...\n", authURL)
-
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
+
+	// Try to open the browser automatically.
+	if err := openBrowser(authURL); err != nil {
+		fmt.Fprintf(os.Stderr, "auth: could not open browser automatically: %v\n", err)
+	}
+	fmt.Printf("\nOpening browser for Gmail authorization...\nIf it did not open, visit:\n\n  %s\n\nWaiting for authorization...\n", authURL)
 
 	var code string
 	select {
@@ -206,18 +215,21 @@ func runConsentFlow(ctx context.Context, cfg *oauth2.Config) (*oauth2.Token, err
 }
 
 // openBrowser attempts to open the given URL in the default system browser.
-func openBrowser(url string) {
+func openBrowser(url string) error {
 	var cmd string
 	var args []string
 	switch runtime.GOOS {
 	case "darwin":
-		cmd, args = "open", []string{url}
+		cmd = "open"
+		args = []string{url}
 	case "windows":
-		cmd, args = "cmd", []string{"/c", "start", url}
+		cmd = "rundll32.exe"
+		args = []string{"url.dll,FileProtocolHandler", url}
 	default: // Linux
-		cmd, args = "xdg-open", []string{url}
+		cmd = "xdg-open"
+		args = []string{url}
 	}
-	_ = exec.Command(cmd, args...).Start()
+	return exec.Command(cmd, args...).Start()
 }
 
 // loadToken reads the OAuth2 token from the OS keychain.
