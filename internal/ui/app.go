@@ -14,6 +14,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
+	"github.com/google/uuid"
+
 	"github.com/MiyuLabs/mail/internal/imap"
 	mailpkg "github.com/MiyuLabs/mail/internal/mail"
 	"github.com/MiyuLabs/mail/internal/resend"
@@ -213,7 +215,7 @@ func (a *App) processOutbox() {
 			rows.Close()
 
 			for _, item := range pending {
-				id, messageID, payload, retryCount := item.id, item.messageID, item.payload, item.retryCount
+				id, messageID, identityID, payload, retryCount := item.id, item.messageID, item.identityID, item.payload, item.retryCount
 
 				var req mailpkg.ComposeRequest
 				if err := json.Unmarshal([]byte(payload), &req); err != nil {
@@ -269,6 +271,22 @@ func (a *App) processOutbox() {
 				// Mark as sent in outbox
 				_ = a.store.Local().UpdateOutbox(a.ctx, id, "sent", "", time.Now().Format(time.RFC3339), retryCount)
 				
+				if req.ThreadID == "" {
+					newThread := &mailpkg.Thread{
+						ID:            uuid.New().String(),
+						Subject:       mailpkg.NormalizeSubject(req.Subject),
+						IdentityID:    identityID,
+						LastMessageAt: time.Now(),
+						MessageCount:  1,
+						Snippet:       mailpkg.MakeSnippet(req.BodyText, 120),
+						CreatedAt:     time.Now(),
+						UpdatedAt:     time.Now(),
+					}
+					_ = a.store.Local().UpsertThread(a.ctx, newThread)
+					_ = a.store.Remote().UpsertThread(a.ctx, newThread)
+					req.ThreadID = newThread.ID
+				}
+
 				sentMsg := req.ToMessage(messageID, resendID)
 				if err := a.store.RecordSent(a.ctx, sentMsg); err != nil {
 					log.Printf("outbox: D1 record sent failed: %v", err)

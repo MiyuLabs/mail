@@ -123,7 +123,7 @@ func (r *ComposeRequest) ToMessage(messageID, resendID string) *Message {
 		Subject:        r.Subject,
 		BodyText:       r.BodyText,
 		BodyHTML:       r.BodyHTML,
-		Snippet:        makeSnippet(r.BodyText, 120),
+		Snippet:        MakeSnippet(r.BodyText, 120),
 		OriginalTo:     r.Identity.Address,
 		Direction:      DirectionOutbound,
 		ResendID:       resendID, // Resend internal UUID — NOT used for threading
@@ -162,7 +162,7 @@ func parseRefList(refs string) []string {
 	return result
 }
 
-func makeSnippet(text string, max int) string {
+func MakeSnippet(text string, max int) string {
 	s := strings.Join(strings.Fields(text), " ")
 	if len(s) <= max {
 		return s
