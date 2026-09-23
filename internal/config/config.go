@@ -63,7 +63,7 @@ type UIConfig struct {
 // Load reads the config file from the default OS-appropriate path.
 // It applies sane defaults for optional fields.
 func Load() (*Config, error) {
-	path, err := defaultConfigPath()
+	path, err := DefaultConfigPath()
 	if err != nil {
 		return nil, fmt.Errorf("config: cannot determine config path: %w", err)
 	}
@@ -125,9 +125,9 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// defaultConfigPath returns the OS-appropriate config file path.
+// DefaultConfigPath returns the OS-appropriate config file path.
 // Order: $MAIL_CONFIG_PATH > $XDG_CONFIG_HOME/mail/config.toml > ~/.config/mail/config.toml
-func defaultConfigPath() (string, error) {
+func DefaultConfigPath() (string, error) {
 	if env := os.Getenv("MAIL_CONFIG_PATH"); env != "" {
 		return env, nil
 	}
@@ -167,3 +167,33 @@ func CacheDir() (string, error) {
 	}
 	return dir, nil
 }
+
+// DefaultConfigToml is the embedded default TOML configuration string.
+const DefaultConfigToml = `# MiyuMail — Example Configuration
+# Copy this to ~/.config/mail/config.toml and fill in your values.
+# Secrets (OAuth Tokens, API Keys) are stored in the OS keychain — not here.
+
+[gmail]
+email = "yourusername@gmail.com" # Gmail Address that Cloudflare Email Routing forwards to
+oauth_client_id     = "YOUR_CLIENT_ID.apps.googleusercontent.com" # OAUTH2 Client credentials from Google cloud console
+oauth_client_secret = "GOCSPX-YOUR_SECRET" # See README.md for how to create these.
+imap_host = "imap.gmail.com" # IMAP Settings
+imap_port = 993 # Defaults work for Gmail
+
+[resend]
+domain = "domain.tld" # Your verified sending domain registered in Resend.
+
+[sync]
+api_url = "https://mail-sync.YOUR_SUBDOMAIN.workers.dev" # URL of your deployed Cloudflare Sync API Worker.
+poll_interval_seconds = 30 # Fallback polling interval (seconds) when IMAP IDLE is unavailable. Leave default if unsure.
+initial_sync_days = 90 # How many days back to sync on first run.
+page_size = 30 # Threads loaded per page (on-demand scroll).
+filter_unrouted = true # Whether to index only emails routed via Cloudflare Email Routing. If true, emails sent directly to the raw Gmail address are silently skipped.
+
+[identities]
+default = "hi@domain.tld" # # Default identity for new compose windows. Must match an address configured in your D1 database.
+
+[ui]
+theme = "dark" # use "light" for light-theme.
+show_avatars = true # # Show sender avatars (initials-based)
+`

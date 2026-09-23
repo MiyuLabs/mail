@@ -26,11 +26,6 @@ package:
 	@mv MiyuMail.tar.xz dist/ 2>/dev/null || true
 	@mv MiyuMail.app dist/ 2>/dev/null || true
 
-.PHONY: setup
-setup: build
-	@echo "Running first-time setup wizard..."
-	./bin/$(BINARY) setup
-
 .PHONY: run
 run:
 	go run ./cmd/mail
@@ -59,24 +54,6 @@ build-windows:
 
 .PHONY: dist
 dist: build-linux build-mac build-windows
-
-# ── Auth helpers ──────────────────────────────────────────────────────────────
-
-.PHONY: auth-gmail
-auth-gmail:
-	go run ./cmd/mail auth gmail
-
-.PHONY: auth-resend
-auth-resend:
-	@read -p "Resend API key: " key && go run ./cmd/mail auth resend $$key
-
-.PHONY: auth-token
-auth-token:
-	@read -p "Sync API token: " tok && go run ./cmd/mail auth token $$tok
-
-.PHONY: auth-clear
-auth-clear:
-	go run ./cmd/mail auth clear
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 

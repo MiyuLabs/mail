@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
@@ -64,12 +63,12 @@ type App struct {
 
 // NewApp creates and wires up the application.
 func NewApp(
+	fyneApp fyne.App,
 	store *store.Store,
 	syncEngine *imap.SyncEngine,
 	sender *resend.Sender,
 ) *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	fyneApp := app.NewWithID("in.miyulabs.mail")
 	fyneApp.Settings().SetTheme(&MailTheme{})
 
 	a := &App{
