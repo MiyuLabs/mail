@@ -114,15 +114,34 @@ func (c *Client) Close() {
 	}
 }
 
-// SelectInbox selects the INBOX mailbox and returns its current state.
-func (c *Client) SelectInbox() (*imap.MailboxStatus, error) {
+// IMAPClient defines the IMAP operations required by SyncEngine.
+type IMAPClient interface {
+	SelectMailbox(name string) (*imap.MailboxStatus, error)
+	SelectInbox() (*imap.MailboxStatus, error)
+	SearchNewUIDs(lastUID uint32) ([]uint32, error)
+	SearchAllUIDs() ([]uint32, error)
+	FetchMessages(uids []uint32, messages chan *imap.Message) error
+	FetchMessageHeaders(uids []uint32, messages chan *imap.Message) error
+	SetSeen(uids []uint32, seen bool) error
+	SetFlagged(ctx context.Context, uids []uint32, flagged bool) error
+	Archive(ctx context.Context, uids []uint32) error
+	Trash(ctx context.Context, uids []uint32) error
+}
+
+// SelectMailbox selects the specified mailbox and returns its current state.
+func (c *Client) SelectMailbox(name string) (*imap.MailboxStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	mbox, err := c.imap.Select("INBOX", false)
+	mbox, err := c.imap.Select(name, false)
 	if err != nil {
-		return nil, fmt.Errorf("imap: SELECT INBOX failed: %w", err)
+		return nil, fmt.Errorf("imap: SELECT %s failed: %w", name, err)
 	}
 	return mbox, nil
+}
+
+// SelectInbox selects the INBOX mailbox and returns its current state.
+func (c *Client) SelectInbox() (*imap.MailboxStatus, error) {
+	return c.SelectMailbox("INBOX")
 }
 
 // SearchNewUIDs returns all UIDs in INBOX greater than lastUID.
@@ -143,6 +162,11 @@ func (c *Client) SearchNewUIDs(lastUID uint32) ([]uint32, error) {
 		return nil, fmt.Errorf("imap: UID SEARCH failed: %w", err)
 	}
 	return uids, nil
+}
+
+// SearchAllUIDs returns all message UIDs currently present in the selected mailbox.
+func (c *Client) SearchAllUIDs() ([]uint32, error) {
+	return c.SearchNewUIDs(0)
 }
 
 // FetchMessages retrieves full RFC 5322 messages for the given UIDs.

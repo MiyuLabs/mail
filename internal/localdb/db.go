@@ -99,7 +99,17 @@ func (c *Client) initSchema() error {
 		has_attachments INTEGER DEFAULT 0,
 		received_at     TEXT NOT NULL,
 		created_at      TEXT NOT NULL,
+		mailbox         TEXT NOT NULL DEFAULT 'INBOX',
+		uid_validity    INTEGER,
 		FOREIGN KEY (thread_id) REFERENCES threads(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS mailbox_sync (
+		mailbox      TEXT PRIMARY KEY,
+		uid_validity INTEGER NOT NULL,
+		last_uid     INTEGER NOT NULL DEFAULT 0,
+		uid_next     INTEGER NOT NULL DEFAULT 0,
+		updated_at   TEXT NOT NULL
 	);
 
 	CREATE TABLE IF NOT EXISTS participants (
@@ -128,6 +138,14 @@ func (c *Client) initSchema() error {
 	if err != nil {
 		return fmt.Errorf("localdb: failed to initialize schema: %w", err)
 	}
+
+	// Schema migrations for existing databases
+	_, _ = c.db.Exec("ALTER TABLE messages ADD COLUMN mailbox TEXT NOT NULL DEFAULT 'INBOX'")
+	_, _ = c.db.Exec("ALTER TABLE messages ADD COLUMN uid_validity INTEGER")
+	_, _ = c.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_mailbox ON messages(mailbox)")
+	_, _ = c.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_uid_validity ON messages(uid_validity)")
+	_, _ = c.db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_mailbox_uidvalidity_uid ON messages(mailbox, uid_validity, imap_uid) WHERE imap_uid IS NOT NULL AND imap_uid > 0 AND uid_validity IS NOT NULL AND uid_validity > 0")
+
 	return nil
 }
 
@@ -204,13 +222,18 @@ func (c *Client) UpsertMessage(ctx context.Context, m *mailpkg.Message) error {
 			from_address, from_name, to_addresses, cc_addresses, bcc_addresses,
 			reply_to, subject, body_text, body_html, snippet, original_to,
 			direction, imap_uid, resend_id, is_read, is_draft, has_attachments,
-			received_at, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			received_at, created_at, mailbox, uid_validity
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(message_id) DO UPDATE SET
-			is_read = excluded.is_read,
-			is_draft = excluded.is_draft,
+			is_read = MAX(messages.is_read, excluded.is_read),
+			is_draft = messages.is_draft,
 			has_attachments = MAX(messages.has_attachments, excluded.has_attachments),
-			imap_uid = COALESCE(excluded.imap_uid, messages.imap_uid)
+			body_text = CASE WHEN excluded.body_text != '' AND excluded.body_text != '[could not parse message body]' THEN excluded.body_text ELSE messages.body_text END,
+			body_html = CASE WHEN excluded.body_html != '' THEN excluded.body_html ELSE messages.body_html END,
+			snippet = CASE WHEN excluded.snippet != '' THEN excluded.snippet ELSE messages.snippet END,
+			imap_uid = CASE WHEN excluded.imap_uid IS NOT NULL AND excluded.imap_uid > 0 THEN excluded.imap_uid ELSE messages.imap_uid END,
+			uid_validity = CASE WHEN excluded.uid_validity IS NOT NULL AND excluded.uid_validity > 0 THEN excluded.uid_validity ELSE messages.uid_validity END,
+			mailbox = CASE WHEN excluded.mailbox IS NOT NULL AND excluded.mailbox != '' THEN excluded.mailbox ELSE messages.mailbox END
 	`
 	boolToInt := func(b bool) int {
 		if b {
@@ -218,16 +241,232 @@ func (c *Client) UpsertMessage(ctx context.Context, m *mailpkg.Message) error {
 		}
 		return 0
 	}
+	mailbox := m.Mailbox
+	if mailbox == "" {
+		mailbox = "INBOX"
+	}
+	var imapUID interface{}
+	if m.IMAPuid > 0 {
+		imapUID = m.IMAPuid
+	}
+	var uidValidity interface{}
+	if m.UIDValidity > 0 {
+		uidValidity = m.UIDValidity
+	}
+
 	_, err := c.db.ExecContext(ctx, query,
 		m.ID, m.ThreadID, m.MessageID, m.InReplyTo, toJSONString(m.References),
 		m.FromAddress, m.FromName, toJSONString(m.ToAddresses), toJSONString(m.CcAddresses), toJSONString(m.BccAddresses),
 		m.ReplyTo, m.Subject, m.BodyText, m.BodyHTML, m.Snippet, m.OriginalTo,
-		m.Direction, m.IMAPuid, m.ResendID,
+		m.Direction, imapUID, m.ResendID,
 		boolToInt(m.IsRead), boolToInt(m.IsDraft), boolToInt(m.HasAttachments),
 		m.ReceivedAt.Format("2006-01-02T15:04:05Z07:00"),
 		m.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		mailbox, uidValidity,
 	)
 	return err
+}
+
+// GetMailboxSync returns the persisted sync state for the given mailbox.
+func (c *Client) GetMailboxSync(ctx context.Context, mailbox string) (*mailpkg.MailboxSyncState, error) {
+	query := "SELECT mailbox, uid_validity, last_uid, uid_next, updated_at FROM mailbox_sync WHERE mailbox = ?"
+	var s mailpkg.MailboxSyncState
+	var updated string
+	err := c.db.QueryRowContext(ctx, query, mailbox).Scan(
+		&s.Mailbox, &s.UIDValidity, &s.LastUID, &s.UIDNext, &updated,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+	return &s, nil
+}
+
+// SetMailboxSync inserts or updates the sync state for the given mailbox.
+func (c *Client) SetMailboxSync(ctx context.Context, s *mailpkg.MailboxSyncState) error {
+	query := `
+		INSERT INTO mailbox_sync (mailbox, uid_validity, last_uid, uid_next, updated_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(mailbox) DO UPDATE SET
+			uid_validity = excluded.uid_validity,
+			last_uid = excluded.last_uid,
+			uid_next = excluded.uid_next,
+			updated_at = excluded.updated_at
+	`
+	updated := s.UpdatedAt.Format(time.RFC3339)
+	if s.UpdatedAt.IsZero() {
+		updated = time.Now().Format(time.RFC3339)
+	}
+	_, err := c.db.ExecContext(ctx, query, s.Mailbox, s.UIDValidity, s.LastUID, s.UIDNext, updated)
+	return err
+}
+
+// InvalidateMailboxUIDs clears the imap_uid and uid_validity for all messages in the given mailbox.
+// This is called when a UIDVALIDITY change is detected to prevent stale UID reuse.
+func (c *Client) InvalidateMailboxUIDs(ctx context.Context, mailbox string) error {
+	query := "UPDATE messages SET imap_uid = NULL, uid_validity = NULL WHERE mailbox = ?"
+	_, err := c.db.ExecContext(ctx, query, mailbox)
+	return err
+}
+
+// GetMailboxUIDs returns all active IMAP UIDs currently associated with the mailbox and uidValidity.
+func (c *Client) GetMailboxUIDs(ctx context.Context, mailbox string, uidValidity uint32) ([]uint32, error) {
+	query := "SELECT imap_uid FROM messages WHERE mailbox = ? AND uid_validity = ? AND imap_uid IS NOT NULL AND imap_uid > 0 ORDER BY imap_uid ASC"
+	rows, err := c.db.QueryContext(ctx, query, mailbox, uidValidity)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var uids []uint32
+	for rows.Next() {
+		var uid uint32
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		uids = append(uids, uid)
+	}
+	return uids, nil
+}
+
+// DeleteMessagesByUIDs deletes messages in the given mailbox and uid_validity matching the provided UIDs.
+func (c *Client) DeleteMessagesByUIDs(ctx context.Context, mailbox string, uidValidity uint32, uids []uint32) error {
+	if len(uids) == 0 {
+		return nil
+	}
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, "DELETE FROM messages WHERE mailbox = ? AND uid_validity = ? AND imap_uid = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, uid := range uids {
+		if _, err := stmt.ExecContext(ctx, mailbox, uidValidity, uid); err != nil {
+			return err
+		}
+	}
+
+	// Update thread message counts
+	_, _ = tx.ExecContext(ctx, `
+		UPDATE threads SET
+			message_count = (SELECT COUNT(*) FROM messages WHERE thread_id = threads.id),
+			is_trashed = CASE WHEN (SELECT COUNT(*) FROM messages WHERE thread_id = threads.id) = 0 THEN 1 ELSE is_trashed END
+	`)
+
+	return tx.Commit()
+}
+
+// CleanupStaleInboundMessages removes inbound messages for the given mailbox whose UIDs were invalidated and not restored.
+func (c *Client) CleanupStaleInboundMessages(ctx context.Context, mailbox string) (int64, error) {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE mailbox = ? AND direction = 'inbound' AND (imap_uid IS NULL OR imap_uid = 0)", mailbox)
+	if err != nil {
+		return 0, err
+	}
+	affected, _ := res.RowsAffected()
+
+	// Update thread message counts
+	_, _ = tx.ExecContext(ctx, `
+		UPDATE threads SET
+			message_count = (SELECT COUNT(*) FROM messages WHERE thread_id = threads.id),
+			is_trashed = CASE WHEN (SELECT COUNT(*) FROM messages WHERE thread_id = threads.id) = 0 THEN 1 ELSE is_trashed END
+	`)
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
+// GetMessageByUID returns a message by its mailbox, uid_validity, and imap_uid.
+func (c *Client) GetMessageByUID(ctx context.Context, mailbox string, uidValidity, uid uint32) (*mailpkg.Message, error) {
+	query := `
+		SELECT id, thread_id, message_id, in_reply_to, "references",
+		from_address, from_name, to_addresses, cc_addresses, bcc_addresses,
+		reply_to, subject, body_text, body_html, snippet, original_to,
+		direction, imap_uid, resend_id, is_read, is_draft, has_attachments,
+		received_at, created_at, mailbox, uid_validity
+		FROM messages WHERE mailbox = ? AND uid_validity = ? AND imap_uid = ? LIMIT 1
+	`
+	row := c.db.QueryRowContext(ctx, query, mailbox, uidValidity, uid)
+	var m mailpkg.Message
+	var inReplyTo, fromName, replyTo, bodyText, bodyHtml, mSnippet, originalTo, resendID *string
+	var imapUID *int
+	var uidVal *int
+	var refs, toAddrs, ccAddrs, bccAddrs string
+	var isRead, isDraft, hasAttachments int
+	var recAt, created string
+	var mbox string
+
+	if err := row.Scan(
+		&m.ID, &m.ThreadID, &m.MessageID, &inReplyTo, &refs,
+		&m.FromAddress, &fromName, &toAddrs, &ccAddrs, &bccAddrs,
+		&replyTo, &m.Subject, &bodyText, &bodyHtml, &mSnippet, &originalTo,
+		&m.Direction, &imapUID, &resendID, &isRead, &isDraft, &hasAttachments,
+		&recAt, &created, &mbox, &uidVal,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if inReplyTo != nil {
+		m.InReplyTo = *inReplyTo
+	}
+	if fromName != nil {
+		m.FromName = *fromName
+	}
+	if replyTo != nil {
+		m.ReplyTo = *replyTo
+	}
+	if bodyText != nil {
+		m.BodyText = *bodyText
+	}
+	if bodyHtml != nil {
+		m.BodyHTML = *bodyHtml
+	}
+	if mSnippet != nil {
+		m.Snippet = *mSnippet
+	}
+	if originalTo != nil {
+		m.OriginalTo = *originalTo
+	}
+	if resendID != nil {
+		m.ResendID = *resendID
+	}
+	if imapUID != nil {
+		m.IMAPuid = uint32(*imapUID)
+	}
+	m.Mailbox = mbox
+	if uidVal != nil {
+		m.UIDValidity = uint32(*uidVal)
+	}
+	m.IsRead = isRead == 1
+	m.IsDraft = isDraft == 1
+	m.HasAttachments = hasAttachments == 1
+	m.ReceivedAt, _ = time.Parse(time.RFC3339, recAt)
+	m.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	_ = json.Unmarshal([]byte(refs), &m.References)
+	_ = json.Unmarshal([]byte(toAddrs), &m.ToAddresses)
+	_ = json.Unmarshal([]byte(ccAddrs), &m.CcAddresses)
+	_ = json.Unmarshal([]byte(bccAddrs), &m.BccAddresses)
+
+	return &m, nil
 }
 
 // QueueOutbox inserts a message into the outbox for sending.
