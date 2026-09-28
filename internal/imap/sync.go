@@ -104,27 +104,12 @@ func (se *SyncEngine) InitialSync(ctx context.Context) error {
 
 	log.Printf("sync: %d new messages to fetch", len(newUIDs))
 
-	// Fetch most recent first (UIDs are ascending; take last N).
-	fullFetchUIDs := newUIDs
-	if len(fullFetchUIDs) > initialFullFetchCount {
-		fullFetchUIDs = newUIDs[len(newUIDs)-initialFullFetchCount:]
-	}
-
-	if err := se.fetchAndProcess(ctx, fullFetchUIDs, true); err != nil {
+	// Process the complete result before committing its high-water mark. Splitting
+	// this into a recent batch plus a background batch can checkpoint over older
+	// messages that have not yet been durably stored.
+	if err := se.fetchAndProcess(ctx, newUIDs, true); err != nil {
 		return err
 	}
-
-	// 3. Background sync for older messages (headers only).
-	if len(newUIDs) > initialFullFetchCount {
-		olderUIDs := newUIDs[:len(newUIDs)-initialFullFetchCount]
-		go func() {
-			bgCtx := context.Background()
-			if err := se.fetchAndProcess(bgCtx, olderUIDs, false); err != nil {
-				log.Printf("sync: background header sync error: %v", err)
-			}
-		}()
-	}
-
 	return nil
 }
 
@@ -159,7 +144,8 @@ func (se *SyncEngine) FetchMessageBody(ctx context.Context, imapUID uint32) (*ma
 	if !ok {
 		return nil, fmt.Errorf("sync: no message returned for UID %d", imapUID)
 	}
-	return se.processRawMessage(ctx, raw)
+	m, _, err := se.processRawMessage(ctx, raw)
+	return m, err
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -180,64 +166,76 @@ func (se *SyncEngine) fetchAndProcess(ctx context.Context, uids []uint32, full b
 
 	var toSync d1.PushRequest
 	toSync.ClientID = se.clientID
+	checkpoint := se.lastUID
+	var processErr error
+	threadByID := make(map[string]mailpkg.Thread)
 
 	for raw := range msgCh {
-		m, err := se.processRawMessage(ctx, raw)
+		m, thread, err := se.processRawMessage(ctx, raw)
 		if err != nil {
-			log.Printf("sync: skipping UID %d: %v", raw.Uid, err)
-			// Still advance lastUID so we don't retry this message forever.
-			if raw.Uid > se.lastUID {
-				se.lastUID = raw.Uid
-				toSync.LastIMAPUID = se.lastUID
+			if processErr == nil {
+				processErr = fmt.Errorf("sync: process UID %d: %w", raw.Uid, err)
 			}
 			continue
 		}
 		if m == nil {
-			// Filtered (not Cloudflare-routed) — advance cursor, don't index.
-			if raw.Uid > se.lastUID {
-				se.lastUID = raw.Uid
-				toSync.LastIMAPUID = se.lastUID
+			// Filtered messages still need an explicit durable checkpoint.
+			if raw.Uid > checkpoint {
+				checkpoint = raw.Uid
 			}
 			continue
 		}
 
-		if raw.Uid > se.lastUID {
-			se.lastUID = raw.Uid
+		if raw.Uid > checkpoint {
+			checkpoint = raw.Uid
 		}
 
 		toSync.Messages = append(toSync.Messages, *m)
-		toSync.LastIMAPUID = se.lastUID
+		threadByID[thread.ID] = *thread
 	}
 
 	if fetchErr != nil {
 		return fmt.Errorf("sync: IMAP fetch error: %w", fetchErr)
 	}
+	if processErr != nil {
+		return processErr
+	}
 
-	// Push all processed messages to D1 and localdb in one batch.
-	if len(toSync.Messages) > 0 {
+	// D1 batches message upserts and cursor advancement atomically. Include an
+	// empty batch when only filtered UIDs were seen so they can be checkpointed.
+	toSync.LastIMAPUID = checkpoint
+	for _, thread := range threadByID {
+		toSync.Threads = append(toSync.Threads, thread)
+	}
+	if checkpoint > se.lastUID || len(toSync.Messages) > 0 {
+		if err := se.store.Remote().Push(ctx, toSync); err != nil {
+			return fmt.Errorf("sync: commit remote messages and checkpoint: %w", err)
+		}
 		for _, m := range toSync.Messages {
+			if thread, ok := threadByID[m.ThreadID]; ok {
+				threadCopy := thread
+				if err := se.store.Local().UpsertThread(ctx, &threadCopy); err != nil {
+					return fmt.Errorf("sync: persist local thread %q: %w", thread.ID, err)
+				}
+			}
 			mCopy := m
 			if err := se.store.Local().UpsertMessage(ctx, &mCopy); err != nil {
-				log.Printf("sync: localdb message upsert failed: %v", err)
+				return fmt.Errorf("sync: persist local message %q: %w", m.MessageID, err)
 			}
 		}
-
-		if err := se.store.Remote().Push(ctx, toSync); err != nil {
-			log.Printf("sync: D1 push failed (data will be retried): %v", err)
-			// Non-fatal: messages are visible locally even if D1 sync failed.
-		}
+		se.lastUID = checkpoint
 	}
 
 	return nil
 }
 
-func (se *SyncEngine) processRawMessage(ctx context.Context, raw *goimap.Message) (*mailpkg.Message, error) {
+func (se *SyncEngine) processRawMessage(ctx context.Context, raw *goimap.Message) (*mailpkg.Message, *mailpkg.Thread, error) {
 	// Extract the raw body bytes from BODY[] section.
 	var rawBody []byte
 	for _, section := range raw.Body {
 		data, err := io.ReadAll(section)
 		if err != nil {
-			return nil, fmt.Errorf("sync: read body section: %w", err)
+			return nil, nil, fmt.Errorf("sync: read body section: %w", err)
 		}
 		rawBody = data
 		break
@@ -250,7 +248,7 @@ func (se *SyncEngine) processRawMessage(ctx context.Context, raw *goimap.Message
 
 	m, err := ParseMessage(raw, rawBody, se.domain)
 	if err != nil {
-		return nil, fmt.Errorf("sync: parse message: %w", err)
+		return nil, nil, fmt.Errorf("sync: parse message: %w", err)
 	}
 
 	m.ID = uuid.New().String()
@@ -265,7 +263,7 @@ func (se *SyncEngine) processRawMessage(ctx context.Context, raw *goimap.Message
 	if se.filterUnrouted && !matched {
 		log.Printf("sync: skipping unrouted message %s (from %s, to %v) — not addressed to a known identity",
 			m.MessageID, m.FromAddress, m.ToAddresses)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var identityID string
@@ -299,14 +297,10 @@ func (se *SyncEngine) processRawMessage(ctx context.Context, raw *goimap.Message
 	}
 
 	// Push thread metadata to D1 and localdb.
-	if err := se.store.Remote().UpsertThread(ctx, thread); err != nil {
-		log.Printf("sync: D1 thread upsert failed: %v", err)
-	}
-	if err := se.store.Local().UpsertThread(ctx, thread); err != nil {
-		log.Printf("sync: localdb thread upsert failed: %v", err)
-	}
+	// Thread persistence is performed by fetchAndProcess with its message batch,
+	// so a retry cannot leave a committed thread without its checkpointed message.
 
-	return m, nil
+	return m, thread, nil
 }
 
 // synthesizeFromEnvelope builds a minimal RFC 5322 header block from a
@@ -341,17 +335,17 @@ func (se *SyncEngine) cacheAttachments(m *mailpkg.Message) error {
 		att.ID = uuid.New().String()
 		att.MessageID = m.ID
 		dir := filepath.Join(se.cacheDir, "attachments", m.MessageID)
-		
+
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("sync: create attachment dir: %w", err)
 		}
-		
+
 		att.StorageKey = filepath.Join(dir, att.Filename)
-		
+
 		if err := os.WriteFile(att.StorageKey, att.RawData, 0644); err != nil {
 			return fmt.Errorf("sync: write attachment to disk: %w", err)
 		}
-		
+
 		// Clear raw data after writing so we don't hold megabytes in memory and JSON
 		att.RawData = nil
 	}

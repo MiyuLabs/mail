@@ -382,10 +382,12 @@ async function syncPush(env: Env, body: SyncPushBody): Promise<Response> {
   const { client_id, messages, threads, drafts, last_imap_uid } = body;
   const now = new Date().toISOString();
   const batch: D1PreparedStatement[] = [];
+  const messageBatch: D1PreparedStatement[] = [];
 
-  // Upsert messages.
+  // Prepare message upserts. They are appended after thread upserts below so
+  // the batch respects message.thread_id foreign keys.
   for (const m of (messages ?? [])) {
-    batch.push(env.DB.prepare(`
+    messageBatch.push(env.DB.prepare(`
       INSERT OR IGNORE INTO messages (id, thread_id, message_id, in_reply_to, "references",
         from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to, subject,
         body_text, body_html, snippet, original_to, direction, imap_uid, resend_id,
@@ -423,6 +425,8 @@ async function syncPush(env: Env, body: SyncPushBody): Promise<Response> {
       t.created_at ?? now, now
     ));
   }
+
+  batch.push(...messageBatch);
 
   // Update sync cursor.
   if (last_imap_uid && client_id) {
