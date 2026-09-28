@@ -138,7 +138,7 @@ func (c *Client) SearchThreads(ctx context.Context, req mailpkg.PageRequest, que
 	// Basic LIKE search across subject, snippet, and participants.
 	// A robust local search would use SQLite FTS5 extension.
 	searchPattern := "%" + query + "%"
-	
+
 	sqlQuery := "SELECT id, subject, identity_id, last_message_at, message_count, is_read, is_starred, is_archived, is_trashed, snippet, participant_names, created_at, updated_at FROM threads WHERE (subject LIKE ? OR snippet LIKE ? OR participant_names LIKE ?)"
 	var args []interface{}
 	args = append(args, searchPattern, searchPattern, searchPattern)
@@ -236,7 +236,7 @@ func (c *Client) GetThread(ctx context.Context, threadID string) (*mailpkg.Threa
 		from_address, from_name, to_addresses, cc_addresses, bcc_addresses,
 		reply_to, subject, body_text, body_html, snippet, original_to,
 		direction, imap_uid, resend_id, is_read, is_draft, has_attachments,
-		received_at, created_at
+		received_at, created_at, mailbox, uid_validity
 		FROM messages WHERE thread_id = ? ORDER BY received_at ASC
 	`
 	rows, err := c.db.QueryContext(ctx, msgQuery, threadID)
@@ -249,16 +249,18 @@ func (c *Client) GetThread(ctx context.Context, threadID string) (*mailpkg.Threa
 		var m mailpkg.Message
 		var inReplyTo, fromName, replyTo, bodyText, bodyHtml, mSnippet, originalTo, resendID *string
 		var imapUID *int
+		var uidValidity *int
 		var refs, toAddrs, ccAddrs, bccAddrs string
 		var isRead, isDraft, hasAttachments int
 		var recAt, created string
+		var mbox string
 
 		if err := rows.Scan(
 			&m.ID, &m.ThreadID, &m.MessageID, &inReplyTo, &refs,
 			&m.FromAddress, &fromName, &toAddrs, &ccAddrs, &bccAddrs,
 			&replyTo, &m.Subject, &bodyText, &bodyHtml, &mSnippet, &originalTo,
 			&m.Direction, &imapUID, &resendID, &isRead, &isDraft, &hasAttachments,
-			&recAt, &created,
+			&recAt, &created, &mbox, &uidValidity,
 		); err != nil {
 			return nil, err
 		}
@@ -289,6 +291,10 @@ func (c *Client) GetThread(ctx context.Context, threadID string) (*mailpkg.Threa
 		}
 		if imapUID != nil {
 			m.IMAPuid = uint32(*imapUID)
+		}
+		m.Mailbox = mbox
+		if uidValidity != nil {
+			m.UIDValidity = uint32(*uidValidity)
 		}
 		m.IsRead = isRead == 1
 		m.IsDraft = isDraft == 1
@@ -327,10 +333,21 @@ func (c *Client) MarkThreadArchived(ctx context.Context, threadID string) error 
 	return err
 }
 
-// MarkThreadRead sets a thread's is_read flag to 1.
+// MarkThreadRead sets a thread's is_read flag to 1 and marks its messages as read.
 func (c *Client) MarkThreadRead(ctx context.Context, threadID string) error {
-	_, err := c.db.ExecContext(ctx, "UPDATE threads SET is_read = 1, updated_at = ? WHERE id = ?", time.Now().Format("2006-01-02T15:04:05Z07:00"), threadID)
-	return err
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, "UPDATE threads SET is_read = 1, updated_at = ? WHERE id = ?", time.Now().Format("2006-01-02T15:04:05Z07:00"), threadID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE messages SET is_read = 1 WHERE thread_id = ?", threadID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // MarkThreadStarred sets a thread's is_starred flag.

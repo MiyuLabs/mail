@@ -82,7 +82,7 @@ func (s *Store) GetThread(ctx context.Context, threadID string) (*mailpkg.Thread
 	if err != nil || t == nil {
 		return t, err
 	}
-	
+
 	// Populate attachment metadata from disk
 	for i := range t.Messages {
 		if t.Messages[i].HasAttachments {
@@ -102,7 +102,7 @@ func (s *Store) GetThread(ctx context.Context, threadID string) (*mailpkg.Thread
 			}
 		}
 	}
-	
+
 	return t, nil
 }
 
@@ -116,7 +116,7 @@ func (s *Store) MarkThreadArchived(ctx context.Context, threadID string) error {
 	if err := s.local.MarkThreadArchived(ctx, threadID); err != nil {
 		return err
 	}
-	
+
 	// Push to IMAP asynchronously if available
 	if s.imapMutator != nil {
 		go func() {
@@ -128,7 +128,7 @@ func (s *Store) MarkThreadArchived(ctx context.Context, threadID string) error {
 
 	// Fire-and-forget to D1
 	thread, err := s.local.GetThread(ctx, threadID)
-	if err == nil {
+	if err == nil && s.remote != nil {
 		go func() {
 			_ = s.remote.UpsertThread(context.Background(), thread)
 		}()
@@ -145,7 +145,10 @@ func (s *Store) MarkThreadRead(ctx context.Context, threadID string) error {
 	if err != nil {
 		return err
 	}
-	return s.remote.UpsertThread(ctx, thread)
+	if s.remote != nil {
+		return s.remote.UpsertThread(ctx, thread)
+	}
+	return nil
 }
 
 // MarkThreadStarred updates the thread state locally and remotely.
@@ -153,7 +156,7 @@ func (s *Store) MarkThreadStarred(ctx context.Context, threadID string, starred 
 	if err := s.local.MarkThreadStarred(ctx, threadID, starred); err != nil {
 		return err
 	}
-	
+
 	// Push to IMAP asynchronously if available
 	if s.imapMutator != nil {
 		go func() {
@@ -164,7 +167,7 @@ func (s *Store) MarkThreadStarred(ctx context.Context, threadID string, starred 
 	}
 
 	thread, err := s.local.GetThread(ctx, threadID)
-	if err == nil {
+	if err == nil && s.remote != nil {
 		go func() {
 			_ = s.remote.UpsertThread(context.Background(), thread)
 		}()
@@ -177,7 +180,7 @@ func (s *Store) MarkThreadTrashed(ctx context.Context, threadID string) error {
 	if err := s.local.MarkThreadTrashed(ctx, threadID); err != nil {
 		return err
 	}
-	
+
 	// Push to IMAP asynchronously if available
 	if s.imapMutator != nil {
 		go func() {
@@ -188,7 +191,7 @@ func (s *Store) MarkThreadTrashed(ctx context.Context, threadID string) error {
 	}
 
 	thread, err := s.local.GetThread(ctx, threadID)
-	if err == nil {
+	if err == nil && s.remote != nil {
 		go func() {
 			_ = s.remote.UpsertThread(context.Background(), thread)
 		}()
@@ -196,15 +199,20 @@ func (s *Store) MarkThreadTrashed(ctx context.Context, threadID string) error {
 	return nil
 }
 
-// getThreadUIDs is a helper to fetch IMAP UIDs for a thread's messages
+// getThreadUIDs is a helper to fetch valid IMAP UIDs for a thread's messages
 func (s *Store) getThreadUIDs(ctx context.Context, threadID string) []uint32 {
 	t, err := s.local.GetThread(ctx, threadID)
 	if err != nil || t == nil {
 		return nil
 	}
+	syncState, _ := s.local.GetMailboxSync(ctx, "INBOX")
 	var uids []uint32
 	for _, m := range t.Messages {
 		if m.IMAPuid > 0 {
+			// If we know the current mailbox UIDVALIDITY, never emit UIDs from an older generation
+			if syncState != nil && syncState.UIDValidity > 0 && m.UIDValidity != syncState.UIDValidity {
+				continue
+			}
 			uids = append(uids, uint32(m.IMAPuid))
 		}
 	}
@@ -214,7 +222,10 @@ func (s *Store) getThreadUIDs(ctx context.Context, threadID string) []uint32 {
 // SaveDraft saves a draft message locally and remotely.
 func (s *Store) SaveDraft(ctx context.Context, draft *mailpkg.Draft) error {
 	// TODO: implement local draft saving
-	return s.remote.SaveDraft(ctx, draft)
+	if s.remote != nil {
+		return s.remote.SaveDraft(ctx, draft)
+	}
+	return nil
 }
 
 // RecordSent saves a sent message locally and remotely.
@@ -225,7 +236,10 @@ func (s *Store) RecordSent(ctx context.Context, msg *mailpkg.Message) error {
 	if err := s.local.UpsertMessage(ctx, msg); err != nil {
 		return err
 	}
-	return s.remote.RecordSent(ctx, msg)
+	if s.remote != nil {
+		return s.remote.RecordSent(ctx, msg)
+	}
+	return nil
 }
 
 // CacheAttachments writes attachment binary data to local disk.
@@ -236,11 +250,11 @@ func (s *Store) CacheAttachments(m *mailpkg.Message) error {
 			continue
 		}
 		dir := filepath.Join(s.cacheDir, "attachments", m.MessageID)
-		
+
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
-		
+
 		path := filepath.Join(dir, att.Filename)
 		if err := os.WriteFile(path, att.RawData, 0644); err != nil {
 			return err

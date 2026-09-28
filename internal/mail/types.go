@@ -40,19 +40,19 @@ func (i Identity) IsSendOnly() bool {
 
 // Thread is a conversation — our own threading model, independent of Gmail's.
 type Thread struct {
-	ID            string    `json:"id"`
-	Subject       string    `json:"subject"`       // normalized (no Re:/Fwd: prefix)
-	IdentityID    string    `json:"identity_id"`   // which mailbox received this
-	LastMessageAt time.Time `json:"last_message_at"`
-	MessageCount  int       `json:"message_count"`
-	IsRead        bool      `json:"is_read"`
-	IsStarred     bool      `json:"is_starred"`
-	IsArchived    bool      `json:"is_archived"`
+	ID               string    `json:"id"`
+	Subject          string    `json:"subject"`     // normalized (no Re:/Fwd: prefix)
+	IdentityID       string    `json:"identity_id"` // which mailbox received this
+	LastMessageAt    time.Time `json:"last_message_at"`
+	MessageCount     int       `json:"message_count"`
+	IsRead           bool      `json:"is_read"`
+	IsStarred        bool      `json:"is_starred"`
+	IsArchived       bool      `json:"is_archived"`
 	IsTrashed        bool      `json:"is_trashed"`
 	Snippet          string    `json:"snippet"`
 	ParticipantNames string    `json:"participant_names"`
 	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 
 	// Populated in-memory (not stored in D1) for convenience.
 	Messages []Message `json:"messages,omitempty"`
@@ -62,7 +62,7 @@ type Thread struct {
 // Message is a single email within a thread.
 type Message struct {
 	// Internal IDs.
-	ID       string `json:"id"`        // our UUID
+	ID       string `json:"id"` // our UUID
 	ThreadID string `json:"thread_id"`
 
 	// RFC 5322 threading headers.
@@ -91,8 +91,10 @@ type Message struct {
 	Direction  Direction `json:"direction"`
 
 	// External references.
-	IMAPuid  uint32 `json:"imap_uid,omitempty"` // Gmail IMAP UID
-	ResendID string `json:"resend_id,omitempty"` // Resend API email ID
+	IMAPuid     uint32 `json:"imap_uid,omitempty"`     // Gmail IMAP UID
+	Mailbox     string `json:"mailbox,omitempty"`      // IMAP mailbox (e.g. "INBOX")
+	UIDValidity uint32 `json:"uid_validity,omitempty"` // IMAP mailbox UIDVALIDITY
+	ResendID    string `json:"resend_id,omitempty"`    // Resend API email ID
 
 	// State.
 	IsRead         bool `json:"is_read"`
@@ -143,7 +145,7 @@ type Attachment struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
-	ContentID   string `json:"content_id"`  // for inline images (CID)
+	ContentID   string `json:"content_id"` // for inline images (CID)
 	IsInline    bool   `json:"is_inline"`
 	StorageKey  string `json:"storage_key"` // local cache path or empty
 
@@ -162,7 +164,7 @@ type Draft struct {
 	Subject      string    `json:"subject"`
 	BodyText     string    `json:"body_text"`
 	BodyHTML     string    `json:"body_html"`
-	InReplyTo    string    `json:"in_reply_to"`  // Message-ID if this is a reply
+	InReplyTo    string    `json:"in_reply_to"` // Message-ID if this is a reply
 	References   []string  `json:"references"`
 	IsReply      bool      `json:"is_reply"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -178,11 +180,20 @@ type Participant struct {
 	MessageCount int       `json:"message_count"`
 }
 
+// MailboxSyncState tracks IMAP synchronization state for a mailbox.
+type MailboxSyncState struct {
+	Mailbox     string    `json:"mailbox"`
+	UIDValidity uint32    `json:"uid_validity"`
+	LastUID     uint32    `json:"last_uid"`
+	UIDNext     uint32    `json:"uid_next"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // SyncCursor tracks per-client sync state.
 type SyncCursor struct {
 	ClientID  string    `json:"client_id"`
-	IMAPuid   uint32    `json:"imap_uid"`   // last successfully synced IMAP UID
-	D1Cursor  string    `json:"d1_cursor"`  // ISO timestamp of last D1 change pulled
+	IMAPuid   uint32    `json:"imap_uid"`  // last successfully synced IMAP UID
+	D1Cursor  string    `json:"d1_cursor"` // ISO timestamp of last D1 change pulled
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
