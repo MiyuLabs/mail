@@ -1,0 +1,12 @@
+From: Harper <harper@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:09:00 +0000
+Message-ID: <boundary-1@example.org>
+Subject: Broken boundary
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="never-closed"
+
+--never-closed
+Content-Type: text/plain
+
+This part is not followed by a closing boundary.

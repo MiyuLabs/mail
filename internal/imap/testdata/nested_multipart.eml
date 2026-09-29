@@ -1,0 +1,27 @@
+From: Fran <fran@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:05:00 +0000
+Message-ID: <nested-1@example.org>
+Subject: Nested message
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="outer-boundary"
+
+--outer-boundary
+Content-Type: multipart/alternative; boundary="inner-boundary"
+
+--inner-boundary
+Content-Type: text/plain; charset=utf-8
+
+Nested plain body.
+--inner-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Nested HTML body.</p>
+--inner-boundary--
+--outer-boundary
+Content-Type: application/octet-stream; name="data.bin"
+Content-Disposition: attachment; filename="data.bin"
+Content-Transfer-Encoding: base64
+
+AAEC/w==
+--outer-boundary--

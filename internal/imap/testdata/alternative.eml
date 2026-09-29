@@ -1,0 +1,17 @@
+From: Casey <casey@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:02:00 +0000
+Message-ID: <alternative-1@example.org>
+Subject: Alternative message
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary"
+
+--alt-boundary
+Content-Type: text/plain; charset=utf-8
+
+Read this in plain text.
+--alt-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Read this in <b>HTML</b>.</p>
+--alt-boundary--

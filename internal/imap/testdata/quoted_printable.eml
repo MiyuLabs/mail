@@ -1,0 +1,10 @@
+From: Grace <grace@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:06:00 +0000
+Message-ID: <qp-1@example.org>
+Subject: Quoted printable
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Andr=C3=A9 says hello=2C
+with a soft line break.

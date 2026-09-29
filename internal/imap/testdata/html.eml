@@ -1,0 +1,8 @@
+From: Bob Example <bob@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:01:00 +0000
+Message-ID: <html-1@example.org>
+Subject: HTML message
+Content-Type: text/html; charset=utf-8
+
+<html><body><p>Hello <strong>HTML</strong>.</p></body></html>

@@ -1,0 +1,19 @@
+From: =?UTF-8?Q?Jos=C3=A9_Alvarez?= <jose@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:07:00 +0000
+Message-ID: <utf8-1@example.org>
+Subject: =?UTF-8?Q?Ol=C3=A1_from_Jos=C3=A9?=
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="utf8-boundary"
+
+--utf8-boundary
+Content-Type: text/plain; charset=utf-8
+
+Olá!
+--utf8-boundary
+Content-Type: text/plain; name="=?UTF-8?Q?caf=C3=A9.txt?="
+Content-Disposition: attachment; filename="=?UTF-8?Q?caf=C3=A9.txt?="
+Content-Transfer-Encoding: base64
+
+Y2Fmw6k=
+--utf8-boundary--
