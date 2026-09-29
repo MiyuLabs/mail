@@ -138,7 +138,7 @@ func (c *Client) SearchThreads(ctx context.Context, req mailpkg.PageRequest, que
 	// Basic LIKE search across subject, snippet, and participants.
 	// A robust local search would use SQLite FTS5 extension.
 	searchPattern := "%" + query + "%"
-	
+
 	sqlQuery := "SELECT id, subject, identity_id, last_message_at, message_count, is_read, is_starred, is_archived, is_trashed, snippet, participant_names, created_at, updated_at FROM threads WHERE (subject LIKE ? OR snippet LIKE ? OR participant_names LIKE ?)"
 	var args []interface{}
 	args = append(args, searchPattern, searchPattern, searchPattern)
@@ -347,4 +347,52 @@ func (c *Client) MarkThreadStarred(ctx context.Context, threadID string, starred
 func (c *Client) MarkThreadTrashed(ctx context.Context, threadID string) error {
 	_, err := c.db.ExecContext(ctx, "UPDATE threads SET is_trashed = 1 WHERE id = ?", threadID)
 	return err
+}
+
+// ListIMAPUIDs returns the stable UIDs currently associated with cached messages.
+func (c *Client) ListIMAPUIDs(ctx context.Context) ([]uint32, error) {
+	rows, err := c.db.QueryContext(ctx, "SELECT DISTINCT imap_uid FROM messages WHERE imap_uid IS NOT NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var uids []uint32
+	for rows.Next() {
+		var uid uint32
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		uids = append(uids, uid)
+	}
+	return uids, rows.Err()
+}
+
+// ClearIMAPUIDs removes mailbox membership from messages whose UIDs were
+// authoritatively absent from the selected mailbox. The message history remains.
+func (c *Client) ClearIMAPUIDs(ctx context.Context, uids []uint32) error {
+	if len(uids) == 0 {
+		return nil
+	}
+	const batchSize = 500
+	for start := 0; start < len(uids); start += batchSize {
+		end := start + batchSize
+		if end > len(uids) {
+			end = len(uids)
+		}
+		placeholders := make([]byte, 0, (end-start)*2)
+		args := make([]interface{}, 0, end-start)
+		for i, uid := range uids[start:end] {
+			if i > 0 {
+				placeholders = append(placeholders, ',')
+			}
+			placeholders = append(placeholders, '?')
+			args = append(args, uid)
+		}
+		query := "UPDATE messages SET imap_uid = NULL WHERE imap_uid IN (" + string(placeholders) + ")"
+		if _, err := c.db.ExecContext(ctx, query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }

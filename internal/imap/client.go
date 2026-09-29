@@ -145,6 +145,12 @@ func (c *Client) SearchNewUIDs(lastUID uint32) ([]uint32, error) {
 	return uids, nil
 }
 
+// SearchAllUIDs returns the current UID set for the selected mailbox. UID SEARCH
+// returns stable UIDs, independent of sequence-number shifts caused by EXPUNGE.
+func (c *Client) SearchAllUIDs() ([]uint32, error) {
+	return c.SearchNewUIDs(0)
+}
+
 // FetchMessages retrieves full RFC 5322 messages for the given UIDs.
 // Returns them via the messages channel.
 func (c *Client) FetchMessages(uids []uint32, messages chan *imap.Message) error {

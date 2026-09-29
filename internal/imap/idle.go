@@ -8,8 +8,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/emersion/go-imap/client"
 	"github.com/emersion/go-imap-idle"
+	"github.com/emersion/go-imap/client"
 )
 
 const (
@@ -64,6 +64,7 @@ func (l *IDLEListener) Run() {
 				}
 				// Reconnect succeeded, reset backoff
 				backoff = 5 * time.Second
+				l.notifyMailboxChange()
 			}
 		} else {
 			// runOnce returned cleanly, reset backoff
@@ -105,14 +106,15 @@ func (l *IDLEListener) runOnce() error {
 			return err
 
 		case update := <-updates:
-			switch update.(type) {
-			case *client.MailboxUpdate:
+			switch {
+			case isExpungeUpdate(update):
+				// SeqNum is intentionally not used to select a local message: it is
+				// transient and subsequent EXPUNGE events shift sequence numbers.
+				log.Printf("imap/idle: EXPUNGE update received — reconciling mailbox UIDs")
+				l.notifyMailboxChange()
+			case isMailboxUpdate(update):
 				log.Printf("imap/idle: EXISTS update received — new mail may be available")
-				// Signal the sync engine without blocking.
-				select {
-				case l.NewMail <- struct{}{}:
-				default:
-				}
+				l.notifyMailboxChange()
 			}
 
 		case <-ticker.C:
@@ -122,6 +124,23 @@ func (l *IDLEListener) runOnce() error {
 			raw.Updates = nil
 			return nil
 		}
+	}
+}
+
+func isExpungeUpdate(update client.Update) bool {
+	_, ok := update.(*client.ExpungeUpdate)
+	return ok
+}
+
+func isMailboxUpdate(update client.Update) bool {
+	_, ok := update.(*client.MailboxUpdate)
+	return ok
+}
+
+func (l *IDLEListener) notifyMailboxChange() {
+	select {
+	case l.NewMail <- struct{}{}:
+	default:
 	}
 }
 

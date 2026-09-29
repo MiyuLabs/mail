@@ -91,6 +91,9 @@ func (se *SyncEngine) InitialSync(ctx context.Context) error {
 	if _, err := se.imap.SelectInbox(); err != nil {
 		return fmt.Errorf("sync: %w", err)
 	}
+	if err := se.reconcileExpungedUIDs(ctx); err != nil {
+		return err
+	}
 
 	newUIDs, err := se.imap.SearchNewUIDs(se.lastUID)
 	if err != nil {
@@ -134,6 +137,9 @@ func (se *SyncEngine) SyncNewMessages(ctx context.Context) error {
 	if _, err := se.imap.SelectInbox(); err != nil {
 		return fmt.Errorf("sync: %w", err)
 	}
+	if err := se.reconcileExpungedUIDs(ctx); err != nil {
+		return err
+	}
 
 	newUIDs, err := se.imap.SearchNewUIDs(se.lastUID)
 	if err != nil {
@@ -146,6 +152,44 @@ func (se *SyncEngine) SyncNewMessages(ctx context.Context) error {
 
 	log.Printf("sync: %d new messages (post-IDLE)", len(newUIDs))
 	return se.fetchAndProcess(ctx, newUIDs, true)
+}
+
+// reconcileExpungedUIDs compares stable UIDs currently in INBOX with cached
+// message UIDs. EXPUNGE sequence numbers are never used to identify records.
+func (se *SyncEngine) reconcileExpungedUIDs(ctx context.Context) error {
+	present, err := se.imap.SearchAllUIDs()
+	if err != nil {
+		return fmt.Errorf("sync: search mailbox UIDs for expunge reconciliation: %w", err)
+	}
+	known, err := se.store.Local().ListIMAPUIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("sync: list cached mailbox UIDs: %w", err)
+	}
+	expunged := findExpungedUIDs(known, present)
+	if len(expunged) == 0 {
+		return nil
+	}
+	if err := se.store.Remote().ClearIMAPUIDs(ctx, expunged); err != nil {
+		return fmt.Errorf("sync: clear expunged UIDs remotely: %w", err)
+	}
+	if err := se.store.Local().ClearIMAPUIDs(ctx, expunged); err != nil {
+		return fmt.Errorf("sync: clear expunged UIDs locally: %w", err)
+	}
+	return nil
+}
+
+func findExpungedUIDs(known, present []uint32) []uint32 {
+	presentSet := make(map[uint32]struct{}, len(present))
+	for _, uid := range present {
+		presentSet[uid] = struct{}{}
+	}
+	var missing []uint32
+	for _, uid := range known {
+		if _, ok := presentSet[uid]; !ok {
+			missing = append(missing, uid)
+		}
+	}
+	return missing
 }
 
 // FetchMessageBody fetches the full body of a single message on demand.
@@ -341,17 +385,17 @@ func (se *SyncEngine) cacheAttachments(m *mailpkg.Message) error {
 		att.ID = uuid.New().String()
 		att.MessageID = m.ID
 		dir := filepath.Join(se.cacheDir, "attachments", m.MessageID)
-		
+
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("sync: create attachment dir: %w", err)
 		}
-		
+
 		att.StorageKey = filepath.Join(dir, att.Filename)
-		
+
 		if err := os.WriteFile(att.StorageKey, att.RawData, 0644); err != nil {
 			return fmt.Errorf("sync: write attachment to disk: %w", err)
 		}
-		
+
 		// Clear raw data after writing so we don't hold megabytes in memory and JSON
 		att.RawData = nil
 	}

@@ -166,6 +166,9 @@ export default {
       if (path === "/api/v1/sync/push" && method === "POST") {
         return await syncPush(env, await request.json<SyncPushBody>());
       }
+      if (path === "/api/v1/sync/expunged" && method === "POST") {
+        return await clearExpungedUIDs(env, await request.json<{ uids: number[] }>());
+      }
 
       return json({ error: "Not found" }, 404);
     } catch (err) {
@@ -438,6 +441,17 @@ async function syncPush(env: Env, body: SyncPushBody): Promise<Response> {
   }
 
   return json({ ok: true });
+}
+
+async function clearExpungedUIDs(env: Env, body: { uids: number[] }): Promise<Response> {
+  const uids = [...new Set(body.uids ?? [])].filter((uid) => Number.isInteger(uid) && uid > 0);
+  for (let start = 0; start < uids.length; start += 100) {
+    const chunk = uids.slice(start, start + 100);
+    const placeholders = chunk.map(() => "?").join(",");
+    await env.DB.prepare(`UPDATE messages SET imap_uid = NULL WHERE imap_uid IN (${placeholders})`)
+      .bind(...chunk).run();
+  }
+  return json({ ok: true, cleared: uids.length });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
