@@ -1,0 +1,9 @@
+From: Kim <kim@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:12:00 +0000
+Message-ID: <base64-1@example.org>
+Subject: Base64 body
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+QmFzZTY0IGJvZHkgaXMgcGFyc2VkIGNvcnJlY3RseS4K

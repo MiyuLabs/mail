@@ -1,0 +1,10 @@
+From: First Sender <first@example.org>
+From: Second Sender <second@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:08:00 +0000
+Message-ID: <duplicates-1@example.org>
+Subject: First subject
+Subject: Second subject
+Content-Type: text/plain; charset=utf-8
+
+Duplicate fields use the standard first-value Header.Get behavior.

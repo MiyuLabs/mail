@@ -1,0 +1,19 @@
+From: Dana <dana@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:03:00 +0000
+Message-ID: <mixed-1@example.org>
+Subject: Report attached
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary"
+
+--mixed-boundary
+Content-Type: text/plain; charset=utf-8
+
+Please see the report.
+--mixed-boundary
+Content-Type: text/csv; name="report.csv"
+Content-Disposition: attachment; filename="report.csv"
+Content-Transfer-Encoding: base64
+
+bmFtZSx2YWx1ZQp0b3RhbCw0Mg==
+--mixed-boundary--

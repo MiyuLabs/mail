@@ -1,0 +1,20 @@
+From: Eli <eli@example.org>
+To: support@example.com
+Date: Tue, 01 Jul 2025 10:04:00 +0000
+Message-ID: <related-1@example.org>
+Subject: Inline image
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related-boundary"; type="text/html"
+
+--related-boundary
+Content-Type: text/html; charset=utf-8
+
+<p>Logo: <img src="cid:logo@example.org"></p>
+--related-boundary
+Content-Type: image/png; name="logo.png"
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@example.org>
+Content-Transfer-Encoding: base64
+
+aGVsbG8taW1hZ2U=
+--related-boundary--
