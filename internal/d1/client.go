@@ -141,16 +141,16 @@ func (c *Client) DeleteDraft(ctx context.Context, draftID string) error {
 
 // PullRequest is the payload for a sync pull request.
 type PullRequest struct {
-	ClientID  string `json:"client_id"`
-	D1Cursor  string `json:"d1_cursor"`
+	ClientID string `json:"client_id"`
+	D1Cursor string `json:"d1_cursor"`
 }
 
 // PullResponse contains changes since the last sync.
 type PullResponse struct {
-	Threads    []mailpkg.Thread   `json:"threads"`
-	Messages   []mailpkg.Message  `json:"messages"`
-	Drafts     []mailpkg.Draft    `json:"drafts"`
-	NextCursor string             `json:"next_cursor"`
+	Threads     []mailpkg.Thread  `json:"threads"`
+	Messages    []mailpkg.Message `json:"messages"`
+	Drafts      []mailpkg.Draft   `json:"drafts"`
+	NextCursor  string            `json:"next_cursor"`
 	LastIMAPUID uint32            `json:"last_imap_uid"`
 }
 
@@ -165,16 +165,24 @@ func (c *Client) Pull(ctx context.Context, req PullRequest) (*PullResponse, erro
 
 // PushRequest batches local changes to sync to D1.
 type PushRequest struct {
-	ClientID  string             `json:"client_id"`
-	Threads   []mailpkg.Thread   `json:"threads,omitempty"`
-	Messages  []mailpkg.Message  `json:"messages,omitempty"`
-	Drafts    []mailpkg.Draft    `json:"drafts,omitempty"`
-	LastIMAPUID uint32           `json:"last_imap_uid,omitempty"`
+	ClientID    string            `json:"client_id"`
+	Threads     []mailpkg.Thread  `json:"threads,omitempty"`
+	Messages    []mailpkg.Message `json:"messages,omitempty"`
+	Drafts      []mailpkg.Draft   `json:"drafts,omitempty"`
+	LastIMAPUID uint32            `json:"last_imap_uid,omitempty"`
 }
 
 // Push sends local state changes to D1.
 func (c *Client) Push(ctx context.Context, req PushRequest) error {
 	return c.post(ctx, "/api/v1/sync/push", req, nil)
+}
+
+// UpdateMessageReadByUID synchronizes an unsolicited IMAP \\Seen update.
+func (c *Client) UpdateMessageReadByUID(ctx context.Context, uid uint32, isRead bool) error {
+	return c.post(ctx, "/api/v1/sync/flags", struct {
+		UID    uint32 `json:"uid"`
+		IsRead bool   `json:"is_read"`
+	}{UID: uid, IsRead: isRead}, nil)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

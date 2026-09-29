@@ -148,6 +148,20 @@ func (se *SyncEngine) SyncNewMessages(ctx context.Context) error {
 	return se.fetchAndProcess(ctx, newUIDs, true)
 }
 
+// SyncMessageReadFlag persists a UID-addressed unsolicited \\Seen update.
+func (se *SyncEngine) SyncMessageReadFlag(ctx context.Context, uid uint32, isRead bool) error {
+	if uid == 0 {
+		return fmt.Errorf("sync: cannot persist flags without a message UID")
+	}
+	if err := se.store.Remote().UpdateMessageReadByUID(ctx, uid, isRead); err != nil {
+		return fmt.Errorf("sync: update remote read flag for UID %d: %w", uid, err)
+	}
+	if err := se.store.Local().UpdateMessageReadByUID(ctx, uid, isRead); err != nil {
+		return fmt.Errorf("sync: update local read flag for UID %d: %w", uid, err)
+	}
+	return nil
+}
+
 // FetchMessageBody fetches the full body of a single message on demand.
 // Used when the user opens a thread whose body was not eagerly fetched.
 func (se *SyncEngine) FetchMessageBody(ctx context.Context, imapUID uint32) (*mailpkg.Message, error) {
@@ -341,17 +355,17 @@ func (se *SyncEngine) cacheAttachments(m *mailpkg.Message) error {
 		att.ID = uuid.New().String()
 		att.MessageID = m.ID
 		dir := filepath.Join(se.cacheDir, "attachments", m.MessageID)
-		
+
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("sync: create attachment dir: %w", err)
 		}
-		
+
 		att.StorageKey = filepath.Join(dir, att.Filename)
-		
+
 		if err := os.WriteFile(att.StorageKey, att.RawData, 0644); err != nil {
 			return fmt.Errorf("sync: write attachment to disk: %w", err)
 		}
-		
+
 		// Clear raw data after writing so we don't hold megabytes in memory and JSON
 		att.RawData = nil
 	}
