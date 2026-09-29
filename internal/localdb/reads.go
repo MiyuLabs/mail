@@ -138,7 +138,7 @@ func (c *Client) SearchThreads(ctx context.Context, req mailpkg.PageRequest, que
 	// Basic LIKE search across subject, snippet, and participants.
 	// A robust local search would use SQLite FTS5 extension.
 	searchPattern := "%" + query + "%"
-	
+
 	sqlQuery := "SELECT id, subject, identity_id, last_message_at, message_count, is_read, is_starred, is_archived, is_trashed, snippet, participant_names, created_at, updated_at FROM threads WHERE (subject LIKE ? OR snippet LIKE ? OR participant_names LIKE ?)"
 	var args []interface{}
 	args = append(args, searchPattern, searchPattern, searchPattern)
@@ -347,4 +347,30 @@ func (c *Client) MarkThreadStarred(ctx context.Context, threadID string, starred
 func (c *Client) MarkThreadTrashed(ctx context.Context, threadID string) error {
 	_, err := c.db.ExecContext(ctx, "UPDATE threads SET is_trashed = 1 WHERE id = ?", threadID)
 	return err
+}
+
+// UpdateMessageReadByUID applies an unsolicited IMAP \\Seen update and keeps
+// the containing thread's aggregate read state consistent in the same tx.
+func (c *Client) UpdateMessageReadByUID(ctx context.Context, uid uint32, isRead bool) error {
+	value := 0
+	if isRead {
+		value = 1
+	}
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, "UPDATE messages SET is_read = ? WHERE imap_uid = ?", value, uid); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE threads
+		SET is_read = CASE WHEN EXISTS (
+			SELECT 1 FROM messages WHERE messages.thread_id = threads.id AND messages.is_read = 0
+		) THEN 0 ELSE 1 END, updated_at = ?
+		WHERE id IN (SELECT thread_id FROM messages WHERE imap_uid = ?)`, time.Now().Format(time.RFC3339), uid)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }

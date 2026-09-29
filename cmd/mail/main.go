@@ -72,7 +72,7 @@ func bootMainApp(application fyne.App) {
 			return
 		}
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	application.Lifecycle().SetOnStopped(func() {
 		cancel()
@@ -159,25 +159,36 @@ func bootMainApp(application fyne.App) {
 			mainWindow.RefreshMailList()
 		}
 
-		// Connect dedicated IDLE IMAP client
+		// Run a dedicated IDLE client; it owns initial connection, authentication,
+		// mailbox selection, reconnects, and shutdown.
 		idleImapClient := imap.NewClient(cfg.Gmail.Email, cfg.Gmail.IMAPHost, cfg.Gmail.IMAPPort, tokenSource)
-		if err := idleImapClient.Connect(); err != nil {
-			log.Printf("IDLE IMAP connection failed: %v", err)
-			return
-		}
-
 		idleListener := imap.NewIDLEListener(idleImapClient)
 		go idleListener.Run()
 		go func() {
-			for range idleListener.NewMail {
-				if err := syncEngine.SyncNewMessages(ctx); err != nil {
-					log.Printf("post-IDLE sync failed: %v", err)
+			<-ctx.Done()
+			idleListener.Stop()
+		}()
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-idleListener.NewMail:
+					if err := syncEngine.SyncNewMessages(ctx); err != nil {
+						log.Printf("post-IDLE sync failed: %v", err)
+					}
+				case <-idleListener.FlagChanges:
+					for uid, seen := range idleListener.DrainFlagChanges() {
+						if err := syncEngine.SyncMessageReadFlag(ctx, uid, seen); err != nil {
+							log.Printf("post-IDLE flag sync failed for UID %d: %v", uid, err)
+						}
+					}
 				}
 			}
 		}()
 	}()
 
-	// The mainWindow (App wrapper) runs its own window show logic, but wait, 
+	// The mainWindow (App wrapper) runs its own window show logic, but wait,
 	// ui.NewApp creates the window and calls w.ShowAndRun() inside Run().
 	// But application.Run() is already called in main().
 	// We should just call mainWindow.Run() ? No, if application.Run() is in main, we just show the window.

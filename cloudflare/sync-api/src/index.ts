@@ -166,6 +166,9 @@ export default {
       if (path === "/api/v1/sync/push" && method === "POST") {
         return await syncPush(env, await request.json<SyncPushBody>());
       }
+      if (path === "/api/v1/sync/flags" && method === "POST") {
+        return await updateMessageFlags(env, await request.json<{ uid: number; is_read: boolean }>());
+      }
 
       return json({ error: "Not found" }, 404);
     } catch (err) {
@@ -437,6 +440,21 @@ async function syncPush(env: Env, body: SyncPushBody): Promise<Response> {
     await env.DB.batch(batch);
   }
 
+  return json({ ok: true });
+}
+
+async function updateMessageFlags(env: Env, body: { uid: number; is_read: boolean }): Promise<Response> {
+  if (!Number.isInteger(body.uid) || body.uid <= 0) return json({ error: "Invalid UID" }, 400);
+  const isRead = body.is_read ? 1 : 0;
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE messages SET is_read = ? WHERE imap_uid = ?").bind(isRead, body.uid),
+    env.DB.prepare(`UPDATE threads SET is_read = CASE WHEN EXISTS (
+      SELECT 1 FROM messages WHERE messages.thread_id = threads.id AND messages.is_read = 0
+    ) THEN 0 ELSE 1 END, updated_at = ? WHERE id IN (
+      SELECT thread_id FROM messages WHERE imap_uid = ?
+    )`).bind(now, body.uid),
+  ]);
   return json({ ok: true });
 }
 

@@ -59,11 +59,21 @@ func (c *Client) Email() string {
 	return c.email
 }
 
+// IsConnected reports whether the client has an authenticated connection.
+func (c *Client) IsConnected() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.connected && c.imap != nil
+}
+
 // Connect establishes a TLS connection to the IMAP server and authenticates
 // using the XOAUTH2 SASL mechanism.
 func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.connected {
+		return fmt.Errorf("imap: already connected")
+	}
 
 	addr := fmt.Sprintf("%s:%d", c.host, c.port)
 	tlsCfg := &tls.Config{ServerName: c.host}
@@ -96,10 +106,12 @@ func (c *Client) Connect() error {
 // Reconnect disconnects (if needed) and reconnects. Used after dropped connections.
 func (c *Client) Reconnect() error {
 	c.mu.Lock()
-	if c.connected && c.imap != nil {
-		_ = c.imap.Logout()
-		c.connected = false
+	old := c.imap
+	if old != nil {
+		_ = old.Logout()
 	}
+	c.imap = nil
+	c.connected = false
 	c.mu.Unlock()
 	return c.Connect()
 }
@@ -107,11 +119,12 @@ func (c *Client) Reconnect() error {
 // Close gracefully logs out and closes the IMAP connection.
 func (c *Client) Close() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.connected && c.imap != nil {
 		_ = c.imap.Logout()
-		c.connected = false
 	}
+	c.imap = nil
+	c.connected = false
+	c.mu.Unlock()
 }
 
 // SelectInbox selects the INBOX mailbox and returns its current state.
